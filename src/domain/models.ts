@@ -55,6 +55,7 @@ export interface ChannelBindingRecord {
   scopeKey: string;
   workspaceId: string | null;
   preferredProvider: ProviderKind;
+  preferredModelByProvider: Partial<Record<ProviderKind, string>>;
   currentSessionByProvider: Partial<Record<ProviderKind, string>>;
   lastUserId: string | null;
   lastReplyContext: ReplyContext | null;
@@ -90,6 +91,7 @@ export interface ProviderTurnInput {
   session: SessionRecord;
   binding: ChannelBindingRecord;
   message: string;
+  providerModel?: string | undefined;
 }
 
 export interface ProviderTurnResult {

@@ -16,6 +16,8 @@ import {
   type SessionRecord,
   type WorkspaceRecord,
 } from "../domain/models.js";
+import type { InboundAuthorizer } from "../auth/types.js";
+import type { NativeSessionCatalog, NativeSessionSummary } from "../native/types.js";
 import { parseHarnessCommand, type HarnessCommand } from "./command-parser.js";
 import type { ProviderAdapter } from "../providers/base.js";
 import type { HarnessStateStore } from "../storage/types.js";
@@ -44,6 +46,11 @@ interface PreparedTurn {
   workspaceId: string;
 }
 
+interface NativeSessionListResult {
+  sessions: NativeSessionSummary[];
+  hiddenSubagentCount: number;
+}
+
 export class HarnessService {
   private state: HarnessState | null = null;
   private stateSerial: Promise<void> = Promise.resolve();
@@ -53,6 +60,8 @@ export class HarnessService {
     private readonly store: HarnessStateStore,
     private readonly providers: Record<ProviderKind, ProviderAdapter>,
     private readonly options: HarnessRuntimeOptions,
+    private readonly nativeCatalogs: Partial<Record<ProviderKind, NativeSessionCatalog>> = {},
+    private readonly authorizer?: InboundAuthorizer,
   ) {}
 
   async registerWorkspace(input: RegisterWorkspaceInput): Promise<WorkspaceRecord> {
@@ -93,6 +102,21 @@ export class HarnessService {
   }
 
   async handleInbound(inbound: InboundChannelMessage): Promise<HandleInboundResult> {
+    const authorization = this.authorizer?.authorize(inbound);
+    if (authorization && !authorization.allowed) {
+      const binding = this.createTransientBinding(inbound);
+      return {
+        binding,
+        messages: [
+          this.createOutbound(
+            inbound,
+            binding,
+            `Access denied.\n${authorization.reason ?? "This chat is not allowed to use Better Call Codex."}`,
+          ),
+        ],
+      };
+    }
+
     const queueKey = createBindingId(inbound.channel, inbound.scopeKey);
     return this.runInQueue(this.bindingSerials, queueKey, async () => {
       const command = parseHarnessCommand(inbound.text);
@@ -205,10 +229,11 @@ export class HarnessService {
     try {
       const result = await this.providers[turn.provider].runTurn({
         workspace: started.workspace,
-        session: started.session,
-        binding: started.binding,
-        message: inbound.text,
-      });
+      session: started.session,
+      binding: started.binding,
+      message: inbound.text,
+      providerModel: started.binding.preferredModelByProvider[turn.provider],
+    });
 
       return this.withState(async (state) => {
         const binding = this.getBindingById(state, turn.bindingId);
@@ -330,6 +355,8 @@ export class HarnessService {
     );
 
     if (existing) {
+      existing.preferredModelByProvider = existing.preferredModelByProvider ?? {};
+      existing.currentSessionByProvider = existing.currentSessionByProvider ?? {};
       existing.lastUserId = inbound.userId ?? existing.lastUserId;
       existing.lastReplyContext = inbound.replyContext ?? existing.lastReplyContext ?? null;
       existing.updatedAt = nowIso();
@@ -342,6 +369,7 @@ export class HarnessService {
       scopeKey: inbound.scopeKey,
       workspaceId: null,
       preferredProvider: this.options.defaultProvider,
+      preferredModelByProvider: {},
       currentSessionByProvider: {},
       lastUserId: inbound.userId ?? null,
       lastReplyContext: inbound.replyContext ?? null,
@@ -360,6 +388,24 @@ export class HarnessService {
     return state.bindings.find((binding) => binding.id === bindingId);
   }
 
+  private createTransientBinding(
+    inbound: InboundChannelMessage,
+  ): ChannelBindingRecord {
+    return {
+      id: createBindingId(inbound.channel, inbound.scopeKey),
+      channel: inbound.channel,
+      scopeKey: inbound.scopeKey,
+      workspaceId: null,
+      preferredProvider: this.options.defaultProvider,
+      preferredModelByProvider: {},
+      currentSessionByProvider: {},
+      lastUserId: inbound.userId ?? null,
+      lastReplyContext: inbound.replyContext ?? null,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+  }
+
   private async runCommand(
     state: HarnessState,
     binding: ChannelBindingRecord,
@@ -373,9 +419,16 @@ export class HarnessService {
         "/workspace use <slug>",
         "/workspace import <path>",
         "/provider list",
+        "/provider current",
         "/provider use <codex|claude>",
+        "/provider model current",
+        "/provider model use <model>",
+        "/provider model clear",
         "/session list",
         "/session new [name]",
+        "/session attach <codex|claude> <native-id> [name]",
+        "/session native list [current|all]",
+        "/session native use [current|all] <index|native-id>",
         "/session use <id|name|index>",
         "/session archive <id|name|index>",
         "/new [name]",
@@ -424,8 +477,13 @@ export class HarnessService {
       const allowed = workspace?.allowedProviders ?? [...providerKinds];
       return [
         `Preferred provider: ${binding.preferredProvider}`,
+        `Current model override: ${binding.preferredModelByProvider[binding.preferredProvider] ?? "<default>"}`,
         `Available here: ${allowed.join(", ")}`,
       ].join("\n");
+    }
+
+    if (command.name === "provider" && command.action === "current") {
+      return this.renderProviderCurrent(binding);
     }
 
     if (command.name === "provider" && command.action === "use") {
@@ -442,6 +500,22 @@ export class HarnessService {
       binding.preferredProvider = provider;
       binding.updatedAt = nowIso();
       return `Preferred provider set to "${provider}".`;
+    }
+
+    if (command.name === "provider" && command.action === "model") {
+      if (command.subaction === "current") {
+        return this.renderProviderCurrent(binding);
+      }
+
+      if (command.subaction === "clear") {
+        delete binding.preferredModelByProvider[binding.preferredProvider];
+        binding.updatedAt = nowIso();
+        return `Cleared model override for "${binding.preferredProvider}".`;
+      }
+
+      binding.preferredModelByProvider[binding.preferredProvider] = command.modelName;
+      binding.updatedAt = nowIso();
+      return `Model override for "${binding.preferredProvider}" set to "${command.modelName}".`;
     }
 
     if (command.name === "session" && command.action === "list") {
@@ -481,6 +555,71 @@ export class HarnessService {
       binding.currentSessionByProvider[binding.preferredProvider] = session.id;
       binding.updatedAt = nowIso();
       return `Created ${session.provider} session "${session.name}" (${shortId(session.id)}).`;
+    }
+
+    if (command.name === "session" && command.action === "native-list") {
+      const workspace = this.getSelectedWorkspace(state, binding);
+      if (command.scope === "current" && !workspace) {
+        return "No workspace selected.";
+      }
+      return this.renderNativeSessions(
+        state,
+        workspace,
+        command.scope,
+      );
+    }
+
+    if (command.name === "session" && command.action === "native-use") {
+      const workspace = this.getSelectedWorkspace(state, binding);
+      if (command.scope === "current" && !workspace) {
+        return "No workspace selected.";
+      }
+
+      const resolved = await this.resolveNativeSession(
+        workspace,
+        command.scope,
+        command.selector,
+      );
+      if (!resolved) {
+        return `Could not find native session: ${command.selector}`;
+      }
+
+      return this.attachNativeSession(
+        state,
+        binding,
+        resolved.provider,
+        resolved.nativeSessionId,
+        resolved.defaultName,
+      );
+    }
+
+    if (command.name === "session" && command.action === "attach") {
+      const workspace = this.getSelectedWorkspace(state, binding);
+      if (!workspace) {
+        return "No workspace selected.";
+      }
+
+      const provider = this.resolveProvider(command.providerSelector);
+      if (!provider) {
+        return `Unknown provider: ${command.providerSelector}`;
+      }
+
+      if (!workspace.allowedProviders.includes(provider)) {
+        return `Workspace "${workspace.slug}" does not allow provider "${provider}".`;
+      }
+
+      const nativeSessionId = command.nativeSessionId.trim();
+      if (!nativeSessionId) {
+        return "Native session ID is required.";
+      }
+
+      return this.attachNativeSession(
+        state,
+        binding,
+        provider,
+        nativeSessionId,
+        command.nameText,
+      );
     }
 
     if (command.name === "session" && command.action === "use") {
@@ -611,9 +750,246 @@ export class HarnessService {
       `Scope: ${binding.channel}/${binding.scopeKey}`,
       `Workspace: ${workspace?.slug ?? "<none>"}`,
       `Preferred provider: ${binding.preferredProvider}`,
+      `Current ${binding.preferredProvider} model: ${binding.preferredModelByProvider[binding.preferredProvider] ?? "<default>"}`,
       `Current codex session: ${currentCodex ? `${currentCodex.name} (${shortId(currentCodex.id)})` : "<none>"}`,
       `Current claude session: ${currentClaude ? `${currentClaude.name} (${shortId(currentClaude.id)})` : "<none>"}`,
     ].join("\n");
+  }
+
+  private renderProviderCurrent(binding: ChannelBindingRecord): string {
+    return [
+      `Preferred provider: ${binding.preferredProvider}`,
+      `Model override: ${binding.preferredModelByProvider[binding.preferredProvider] ?? "<default>"}`,
+    ].join("\n");
+  }
+
+  private async renderNativeSessions(
+    state: HarnessState,
+    workspace: WorkspaceRecord | undefined,
+    scope: "current" | "all",
+  ): Promise<string> {
+    const { sessions, hiddenSubagentCount } = await this.listNativeSessions(workspace, scope);
+    if (sessions.length === 0) {
+      return scope === "current"
+        ? `No native sessions found for workspace "${workspace?.slug ?? "<none>"}".`
+        : "No native sessions found.";
+    }
+
+    const lines = [
+      scope === "current"
+        ? `Native sessions for "${workspace?.slug}":`
+        : "All native sessions:",
+    ];
+
+    let index = 1;
+    if (scope === "current" && workspace) {
+      const exactMatches = sessions.filter((session) => session.cwd === workspace.rootPath);
+      const childMatches = sessions.filter((session) => session.cwd !== workspace.rootPath);
+
+      if (exactMatches.length > 0) {
+        lines.push("Exact workspace matches:");
+        for (const session of this.sortNativeSessionsForDisplay(state, exactMatches)) {
+          lines.push(this.renderNativeSessionLine(index++, state, session));
+        }
+      }
+
+      if (childMatches.length > 0) {
+        lines.push("Child paths:");
+        const grouped = this.groupSessionsByCwd(childMatches);
+        for (const [cwd, groupedSessions] of grouped) {
+          lines.push(`- ${cwd}`);
+          for (const session of this.sortNativeSessionsForDisplay(state, groupedSessions)) {
+            lines.push(this.renderNativeSessionLine(index++, state, session, { hideCwd: true }));
+          }
+        }
+      }
+    } else {
+      const grouped = this.groupSessionsByCwd(sessions);
+      for (const [cwd, groupedSessions] of grouped) {
+        lines.push(`- ${cwd}`);
+        for (const session of this.sortNativeSessionsForDisplay(state, groupedSessions)) {
+          lines.push(this.renderNativeSessionLine(index++, state, session, { hideCwd: true }));
+        }
+      }
+    }
+
+    if (hiddenSubagentCount > 0) {
+      lines.push(
+        `(Hidden ${hiddenSubagentCount} subagent session${hiddenSubagentCount === 1 ? "" : "s"}; attach by native id if you need one.)`,
+      );
+    }
+
+    return lines.join("\n");
+  }
+
+  private async listNativeSessions(
+    workspace: WorkspaceRecord | undefined,
+    scope: "current" | "all",
+  ): Promise<NativeSessionListResult> {
+    const entries = await Promise.all(
+      providerKinds.map(async (provider) => {
+        const catalog = this.nativeCatalogs[provider];
+        if (!catalog) {
+          return [] as NativeSessionSummary[];
+        }
+        if (scope === "current") {
+          if (!workspace) {
+            return [];
+          }
+          return catalog.listForWorkspace(workspace.rootPath);
+        }
+        return catalog.listAll();
+      }),
+    );
+
+    const sessions = entries
+      .flat()
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+    const visible = sessions.filter((session) => session.source !== "subagent");
+    return {
+      sessions: visible,
+      hiddenSubagentCount: sessions.length - visible.length,
+    };
+  }
+
+  private async resolveNativeSession(
+    workspace: WorkspaceRecord | undefined,
+    scope: "current" | "all" | "auto",
+    selector: string,
+  ): Promise<(NativeSessionSummary & { defaultName: string }) | null> {
+    const normalized = selector.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    if (!/^\d+$/.test(normalized)) {
+      for (const provider of providerKinds) {
+        const catalog = this.nativeCatalogs[provider];
+        if (!catalog) {
+          continue;
+        }
+        const found = await catalog.findById(normalized);
+        if (found) {
+          return {
+            ...found,
+            defaultName: `${found.provider}-${shortId(found.nativeSessionId)}`,
+          };
+        }
+      }
+      return null;
+    }
+
+    const { sessions } = await this.listNativeSessions(
+      workspace,
+      scope === "all" ? "all" : "current",
+    );
+    const resolved = sessions[Number(normalized) - 1];
+    if (!resolved) {
+      return null;
+    }
+
+    return {
+      ...resolved,
+      defaultName: `${resolved.provider}-${shortId(resolved.nativeSessionId)}`,
+    };
+  }
+
+  private attachNativeSession(
+    state: HarnessState,
+    binding: ChannelBindingRecord,
+    provider: ProviderKind,
+    nativeSessionId: string,
+    requestedName?: string,
+  ): string {
+    const workspace = this.getSelectedWorkspace(state, binding);
+    if (!workspace) {
+      return "No workspace selected.";
+    }
+
+    const existing = state.sessions.find(
+      (session) =>
+        session.workspaceId === workspace.id &&
+        session.provider === provider &&
+        session.providerSessionId === nativeSessionId &&
+        session.archivedAt === null,
+    );
+    if (existing) {
+      binding.preferredProvider = provider;
+      binding.currentSessionByProvider[provider] = existing.id;
+      binding.updatedAt = nowIso();
+      existing.updatedAt = nowIso();
+      return `Using existing attached ${provider} session "${existing.name}" (${shortId(existing.id)}).`;
+    }
+
+    const session = this.createSession(
+      state,
+      workspace,
+      provider,
+      requestedName,
+      nativeSessionId,
+    );
+    binding.preferredProvider = provider;
+    binding.currentSessionByProvider[provider] = session.id;
+    binding.updatedAt = nowIso();
+    return `Attached ${provider} session "${session.name}" (${shortId(session.id)}) to native ${nativeSessionId}.`;
+  }
+
+  private renderNativeSessionLine(
+    index: number,
+    state: HarnessState,
+    session: NativeSessionSummary,
+    options?: { hideCwd?: boolean },
+  ): string {
+    const attached = state.sessions.find(
+      (item) =>
+        item.provider === session.provider &&
+        item.providerSessionId === session.nativeSessionId &&
+        item.archivedAt === null,
+    );
+    const attachedMark = attached ? ` [attached as ${attached.name}]` : "";
+    const sourceMark = session.source === "subagent" ? " [subagent]" : "";
+    const cwdPart = options?.hideCwd ? "" : ` -> ${session.cwd}`;
+    return `${index}. ${session.provider} ${shortId(session.nativeSessionId)} ${session.nativeSessionId}${cwdPart}${attachedMark}${sourceMark}`;
+  }
+
+  private sortNativeSessionsForDisplay(
+    state: HarnessState,
+    sessions: NativeSessionSummary[],
+  ): NativeSessionSummary[] {
+    return [...sessions].sort((left, right) => {
+      const leftAttached = this.isNativeSessionAttached(state, left);
+      const rightAttached = this.isNativeSessionAttached(state, right);
+      if (leftAttached !== rightAttached) {
+        return leftAttached ? -1 : 1;
+      }
+      return right.startedAt.localeCompare(left.startedAt);
+    });
+  }
+
+  private isNativeSessionAttached(
+    state: HarnessState,
+    session: NativeSessionSummary,
+  ): boolean {
+    return state.sessions.some(
+      (item) =>
+        item.provider === session.provider &&
+        item.providerSessionId === session.nativeSessionId &&
+        item.archivedAt === null,
+    );
+  }
+
+  private groupSessionsByCwd(
+    sessions: NativeSessionSummary[],
+  ): Map<string, NativeSessionSummary[]> {
+    const grouped = new Map<string, NativeSessionSummary[]>();
+    for (const session of sessions) {
+      const bucket = grouped.get(session.cwd) ?? [];
+      bucket.push(session);
+      grouped.set(session.cwd, bucket);
+    }
+    return new Map(
+      [...grouped.entries()].sort((left, right) => left[0].localeCompare(right[0])),
+    );
   }
 
   private resolveProvider(selector: string): ProviderKind | null {
@@ -650,13 +1026,15 @@ export class HarnessService {
     workspace: WorkspaceRecord,
     provider: ProviderKind,
     requestedName?: string,
+    attachedProviderSessionId?: string,
   ): SessionRecord {
     const now = nowIso();
     const name = this.ensureUniqueSessionName(
       state,
       workspace.id,
       provider,
-      requestedName?.trim() || `${provider}-${this.countSessions(state, workspace.id, provider) + 1}`,
+      requestedName?.trim() ||
+        `${provider}-${this.countSessions(state, workspace.id, provider) + 1}`,
     );
 
     const id = createSessionId();
@@ -665,7 +1043,8 @@ export class HarnessService {
       workspaceId: workspace.id,
       provider,
       name,
-      providerSessionId: provider === "claude" ? id : null,
+      providerSessionId:
+        attachedProviderSessionId ?? (provider === "claude" ? id : null),
       status: "idle",
       turnCount: 0,
       lastInput: null,

@@ -14,8 +14,13 @@ export interface HarnessConfig {
   wechatBaseUrl?: string | undefined;
   wechatPollTimeoutMs?: number | undefined;
   wechatSyncCursorFile?: string | undefined;
+  wechatAllowFrom?: string[] | undefined;
   enableTelegram?: boolean | undefined;
   telegramBotToken?: string | undefined;
+  telegramPollTimeoutMs?: number | undefined;
+  telegramUpdateOffsetFile?: string | undefined;
+  telegramAllowFrom?: string[] | undefined;
+  telegramAllowChats?: string[] | undefined;
   codexCommand: string;
   codexModel?: string | undefined;
   codexTimeoutMs: number;
@@ -51,8 +56,15 @@ export function loadConfig(
     wechatSyncCursorFile: path.resolve(
       env.WECHAT_SYNC_CURSOR_FILE ?? "./data/wechat-sync-cursor.txt",
     ),
+    wechatAllowFrom: parseList(env.WECHAT_ALLOW_FROM),
     enableTelegram: parseBoolean(env.HARNESS_ENABLE_TELEGRAM, false),
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || undefined,
+    telegramPollTimeoutMs: parseInteger(env.TELEGRAM_POLL_TIMEOUT_MS, 25_000),
+    telegramUpdateOffsetFile: path.resolve(
+      env.TELEGRAM_UPDATE_OFFSET_FILE ?? "./data/telegram-update-offset.json",
+    ),
+    telegramAllowFrom: parseList(env.TELEGRAM_ALLOW_FROM),
+    telegramAllowChats: parseList(env.TELEGRAM_ALLOW_CHATS),
     codexCommand: env.CODEX_COMMAND ?? "codex",
     codexModel: env.CODEX_MODEL || undefined,
     codexTimeoutMs: parseInteger(env.CODEX_TIMEOUT_MS, 120_000),
@@ -78,6 +90,16 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
     return fallback;
   }
   return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
+}
+
+function parseList(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function parseProvider(

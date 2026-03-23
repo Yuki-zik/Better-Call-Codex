@@ -1,6 +1,7 @@
 import type { HarnessApp } from "../app/create-harness-app.js";
 import type { HarnessConfig } from "../config.js";
 import { ClawBotWechatConnector } from "../channels/clawbot-wechat-connector.js";
+import { TelegramBotConnector } from "../channels/telegram-bot-connector.js";
 import type { ChannelConnector } from "../channels/types.js";
 import { HarnessRuntime } from "./harness-runtime.js";
 
@@ -32,6 +33,22 @@ export function createConnectorsFromConfig(config: HarnessConfig): ChannelConnec
         baseUrl: config.wechatBaseUrl,
         pollTimeoutMs: config.wechatPollTimeoutMs ?? 25_000,
         syncCursorFile: config.wechatSyncCursorFile,
+      }),
+    );
+  }
+
+  if (config.enableTelegram) {
+    if (!config.telegramBotToken || !config.telegramUpdateOffsetFile) {
+      throw new Error(
+        "Telegram is enabled, but TELEGRAM_BOT_TOKEN or TELEGRAM_UPDATE_OFFSET_FILE is missing.",
+      );
+    }
+
+    connectors.push(
+      new TelegramBotConnector({
+        botToken: config.telegramBotToken,
+        pollTimeoutMs: config.telegramPollTimeoutMs ?? 25_000,
+        updateOffsetFile: config.telegramUpdateOffsetFile,
       }),
     );
   }

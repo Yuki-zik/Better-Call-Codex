@@ -1,50 +1,54 @@
-# Better Call Codex WeChat Deployment Guide
+[![中文说明](./WECHAT_DEPLOYMENT.md)](./WECHAT_DEPLOYMENT.md)
+[![English Docs](./WECHAT_DEPLOYMENT.en.md)](./WECHAT_DEPLOYMENT.en.md)
 
-This guide is written for a single developer on a personal Mac who wants to get Better Call Codex working in WeChat with the least possible guesswork.
+# Better Call Codex 微信部署说明
 
-The deployment target is:
+这份说明面向“第一次接触这个项目的人”，目标是让你在尽量少猜测的情况下，把 Better Call Codex 部署成一个可在微信里使用的本地编码助手。
 
-- WeChat as the chat front end
-- `codex` as the first live provider
-- a local Better Call Codex process running on your computer
-- a ClawBot/iLink-compatible WeChat bridge
+适用目标：
 
-If you already have a working ClawBot/iLink bridge and know your token and base URL, you can skip to [Configure Better Call Codex](#configure-better-call-codex).
+- 微信作为聊天入口
+- `codex` 作为第一优先 provider
+- Better Call Codex 运行在你自己的电脑上
+- 微信侧通过 ClawBot / iLink 兼容桥接接入
 
-## What You Will End Up With
+如果你已经有可用的微信桥，并且知道自己的 `token` 和 `baseUrl`，可以直接跳到“配置 Better Call Codex”。
 
-After finishing this guide:
+## 你最终会得到什么
 
-- Better Call Codex will poll WeChat for new messages
-- It will route those messages to local `codex`
-- It will send final text replies back to WeChat
-- You will be able to import local workspaces from chat and manage sessions in WeChat
+部署完成后：
 
-## Before You Start
+- Better Call Codex 会持续轮询微信消息
+- 收到消息后会转给本机 `codex`
+- 最终文本结果会自动发回微信
+- 你可以直接在微信里导入本地项目、创建会话、切换原生会话
 
-You need these things on the same machine:
+## 部署前准备
+
+你需要在同一台机器上具备：
 
 - macOS
-- WeChat desktop already usable on your machine
-- `codex` CLI installed and runnable
-- Node.js and `pnpm`
-- a ClawBot/iLink-compatible WeChat bridge account
+- 可正常使用的微信桌面端
+- 已安装并可运行的 `codex`
+- Node.js
+- `pnpm`
+- 一个 ClawBot / iLink 兼容的微信桥接账号
 
-On Apple Silicon Macs, `node` and `pnpm` are often installed under `/opt/homebrew/bin`. If `node` or `pnpm` is "not found", use the command prefix below in all examples:
+如果你是 Apple Silicon Mac，并且终端里提示找不到 `node` 或 `pnpm`，大概率它们安装在：
 
 ```bash
-PATH=/opt/homebrew/bin:$PATH
+/opt/homebrew/bin
 ```
 
-Example:
+可以统一这样调用：
 
 ```bash
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm --version
 ```
 
-## Step 1: Verify Local Prerequisites
+## 第一步：确认本机基础环境
 
-Run these commands:
+运行：
 
 ```bash
 codex --version
@@ -52,83 +56,72 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/node --version
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm --version
 ```
 
-Expected result:
+预期：
 
-- all three commands succeed
-- `codex` prints a version
-- `node` prints a version
-- `pnpm` prints a version
+- 3 个命令都成功
+- `codex` 能输出版本号
+- `node` 能输出版本号
+- `pnpm` 能输出版本号
 
-If `codex` fails, install or fix Codex first before continuing.
+如果 `codex` 本身都无法运行，请先修好 Codex，再继续部署。
 
-## Step 2: Get WeChat Bridge Credentials
+## 第二步：拿到微信桥接凭据
 
-Better Call Codex does not create `WECHAT_BOT_TOKEN` by itself. These values come from the WeChat bridge layer.
+Better Call Codex 本身不会生成 `WECHAT_BOT_TOKEN`。  
+它依赖你现有的微信桥。
 
-The easiest way to get them is to use the reference project:
+最简单的方式，是使用参考项目：
 
 - [wechat-agent-channel](https://github.com/sitarua/wechat-agent-channel)
 
-Its setup flow handles:
+它可以帮你完成：
 
-- WeChat login QR code
-- bridge credential persistence
-- default provider selection
+- 微信扫码登录
+- 本地保存桥接凭据
+- 默认 provider 初始化
 
-### Option A: You Already Have a Bridge
+### 方案 A：你已经有桥接账号
 
-If someone already gave you:
+如果你已经拿到了：
 
-- a bot token
-- a base URL
+- `token`
+- `baseUrl`
 
-then keep those ready and skip to [Configure Better Call Codex](#configure-better-call-codex).
+那么直接进入下一步。
 
-### Option B: Use `wechat-agent-channel` to Create Them
-
-Clone the repo somewhere outside this project:
+### 方案 B：用 `wechat-agent-channel` 生成凭据
 
 ```bash
 cd ~/code
 git clone https://github.com/sitarua/wechat-agent-channel.git
 cd wechat-agent-channel
-```
-
-Install its dependencies:
-
-```bash
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm install
-```
-
-Run its setup:
-
-```bash
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm run setup
 ```
 
-What happens during setup:
+它会做这些事：
 
-1. it shows a WeChat login QR code
-2. you scan it with WeChat
-3. it stores bridge credentials locally
-4. it asks you to choose a default provider
+1. 在终端显示微信登录二维码
+2. 你用手机扫码
+3. 它把登录成功后的桥接凭据写到本地
+4. 询问默认 provider
 
-For Better Call Codex, choose `Codex` first unless you specifically want to debug Claude later.
+对 Better Call Codex 来说，第一次建议选 `Codex`。
 
-### Find the Saved Credentials
+### 查看保存下来的凭据
 
-After setup, inspect this file:
+通常可以看这个文件：
 
 ```bash
 cat ~/.wechat-agent-channel/wechat/account.json
 ```
 
-You are looking for two values:
+你需要两个值：
 
 - `token`
 - `baseUrl`
 
-Typical shape:
+例如：
 
 ```json
 {
@@ -137,28 +130,26 @@ Typical shape:
 }
 ```
 
-Map them like this:
+它们和 Better Call Codex 的映射关系是：
 
 - `token` -> `WECHAT_BOT_TOKEN`
 - `baseUrl` -> `WECHAT_BASE_URL`
 
-If that file does not exist, the bridge setup did not complete successfully. Re-run the setup and finish the QR login flow first.
+## 第三步：配置 Better Call Codex
 
-## Step 3: Configure Better Call Codex
-
-Go back to this repo:
+回到本仓库：
 
 ```bash
 cd /Users/a-znk/code/harness
 ```
 
-Create your local environment file:
+创建本地配置文件：
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and set it like this:
+把 `.env` 至少改成这样：
 
 ```env
 HARNESS_PORT=4318
@@ -168,81 +159,63 @@ HARNESS_LIVE_PROVIDERS=true
 HARNESS_ENABLE_WECHAT=true
 HARNESS_ENABLE_TELEGRAM=false
 
-WECHAT_BOT_TOKEN=replace-with-token-from-account-json
-WECHAT_BASE_URL=replace-with-baseUrl-from-account-json
+WECHAT_BOT_TOKEN=替换成你的token
+WECHAT_BASE_URL=替换成你的baseUrl
 WECHAT_POLL_TIMEOUT_MS=25000
 WECHAT_SYNC_CURSOR_FILE=./data/wechat-sync-cursor.txt
+WECHAT_ALLOW_FROM=
 
-TELEGRAM_BOT_TOKEN=
-
-CODEX_COMMAND=codex
+CODEX_COMMAND=/Applications/Codex.app/Contents/Resources/codex
 CODEX_MODEL=
 CODEX_TIMEOUT_MS=120000
 CODEX_SANDBOX=workspace-write
 CODEX_APPROVAL=never
-
-CLAUDE_COMMAND=claude
-CLAUDE_MODEL=
-CLAUDE_TIMEOUT_MS=120000
-CLAUDE_PERMISSION_MODE=default
 ```
 
-Important notes:
+如果只是你自己使用，强烈建议把 `WECHAT_ALLOW_FROM` 一起配上。
 
-- keep `HARNESS_ENABLE_WECHAT=true`
-- keep `HARNESS_LIVE_PROVIDERS=true` if you want real Codex execution
-- leave Telegram disabled for now
-- `WECHAT_SYNC_CURSOR_FILE` can stay at the default
+例如：
 
-## Step 4: Install This Project
+```env
+WECHAT_ALLOW_FROM=你的微信senderId
+```
 
-If you have not installed this repo yet:
+## 第四步：安装并验证项目
 
 ```bash
+cd /Users/a-znk/code/harness
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm install
-```
-
-Then verify the project still builds:
-
-```bash
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm check
 ```
 
-Expected result:
+预期：
 
-- type check passes
-- tests pass
+- 类型检查通过
+- 测试通过
 
-## Step 5: Start Better Call Codex
-
-Start the local process:
+## 第五步：启动服务
 
 ```bash
 cd /Users/a-znk/code/harness
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 ```
 
-Expected startup behavior:
+预期现象：
 
-- HTTP server starts on `http://127.0.0.1:4318`
-- WeChat polling starts
-- no immediate configuration error is printed
+- 本地服务启动在 `http://127.0.0.1:4318`
+- 微信轮询开始工作
+- 没有立刻报 `WECHAT_BOT_TOKEN` 缺失
+- 没有立刻报 `WECHAT_BASE_URL` 缺失
 
-Healthy startup usually looks like:
+## 第六步：本地自检
 
-- server listening log appears
-- no complaint about missing `WECHAT_BOT_TOKEN`
-- no complaint about missing `WECHAT_BASE_URL`
-
-## Step 6: Sanity Check the Local Process
-
-From another terminal, verify the local HTTP surface:
+另开一个终端：
 
 ```bash
 curl http://127.0.0.1:4318/health
 ```
 
-Expected response:
+预期：
 
 ```json
 {
@@ -250,70 +223,58 @@ Expected response:
 }
 ```
 
-Then inspect current state:
+再看状态：
 
 ```bash
 curl http://127.0.0.1:4318/state
 ```
 
-At first, it is normal if:
+第一次启动时，看到这些为空是正常的：
 
-- `workspaces` is empty
-- `sessions` is empty
-- `bindings` is empty
+- `workspaces`
+- `sessions`
+- `bindings`
 
-## Step 7: First End-to-End WeChat Test
+## 第七步：第一次微信联调
 
-Open WeChat and send yourself or the bridge chat one of these commands.
+打开微信，对接好的桥接会话里依次发送：
 
-### 7.1 Import a Local Project
-
-Example:
+### 7.1 导入当前仓库
 
 ```text
 导入项目 /Users/a-znk/code/harness
 ```
 
-Expected reply:
+预期：
 
-- a success message saying the workspace was imported
-- the imported workspace becomes the current workspace for that WeChat conversation
+- 收到导入成功提示
+- 当前微信会话被绑定到这个 workspace
 
-### 7.2 Check Status
-
-Send:
+### 7.2 查看状态
 
 ```text
 状态
 ```
 
-Expected reply includes:
+预期返回：
 
-- current scope
-- current workspace
-- preferred provider
-- current codex session
-- current claude session
+- 当前 scope
+- 当前 workspace
+- 当前 provider
+- 当前 codex session
+- 当前 claude session
 
-### 7.3 Ask Codex a Real Question
-
-Send:
+### 7.3 让 Codex 回复一句
 
 ```text
 请帮我总结这个仓库是做什么的
 ```
 
-Expected behavior:
+如果微信里收到了真实 Codex 回复，就说明这套链路已经打通。
 
-- Better Call Codex receives the WeChat message
-- it runs local `codex`
-- it sends a final text reply back to WeChat
+## 常用微信命令
 
-If that works, your first real deployment is successful.
-
-## Step 8: Useful WeChat Commands
-
-Project selection:
+工作区相关：
 
 ```text
 导入项目 /Users/yourname/code/project-a
@@ -322,7 +283,7 @@ Project selection:
 状态
 ```
 
-Session management:
+会话相关：
 
 ```text
 新建会话 修复登录流程
@@ -331,96 +292,98 @@ Session management:
 切换会话 修复登录流程
 ```
 
-Provider switching:
+原生会话相关：
 
 ```text
-切换模型 codex
-切换模型 claude
+当前目录会话
+原生会话列表
+切换原生会话 1
+/session attach codex <native-id> [name]
 ```
 
-Note:
+模型相关：
 
-- `claude` only works if the `claude` CLI is installed and reachable in your PATH
-- if `claude` is not installed, stay on `codex`
+```text
+当前模型
+切换模型 codex
+切换具体模型 gpt-5-codex
+```
 
-## Common Problems
+## 常见问题
 
-### `node: command not found` or `pnpm: command not found`
+### 1. `node` 或 `pnpm` 找不到
 
-Use the Homebrew-prefixed form:
+改用：
 
 ```bash
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 ```
 
-### Startup says WeChat is enabled but token or base URL is missing
+### 2. 启动时报 token 或 baseUrl 缺失
 
-Your `.env` is incomplete. Check:
+检查 `.env` 里是否填写了：
 
 - `WECHAT_BOT_TOKEN`
 - `WECHAT_BASE_URL`
 - `WECHAT_SYNC_CURSOR_FILE`
 
-### WeChat login bridge setup succeeded, but `account.json` is missing
+### 3. 服务启动了，但微信没有回复
 
-The bridge setup did not finish writing credentials. Re-run:
-
-```bash
-cd ~/code/wechat-agent-channel
-PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm run setup
-```
-
-### The process starts, but WeChat messages get no reply
-
-Check these in order:
+按顺序检查：
 
 1. `HARNESS_ENABLE_WECHAT=true`
 2. `HARNESS_LIVE_PROVIDERS=true`
-3. `WECHAT_BOT_TOKEN` is valid
-4. `WECHAT_BASE_URL` is correct
-5. local `codex` works by itself from terminal
-6. the imported workspace path really exists
+3. `WECHAT_BOT_TOKEN` 正确
+4. `WECHAT_BASE_URL` 正确
+5. `WECHAT_ALLOW_FROM` 没把你自己挡住
+6. 本机 `codex` 本身可直接运行
 
-Also look at the Better Call Codex terminal logs while sending a message.
+### 4. 提示 `Access denied`
 
-### Workspace import fails
+说明 allowlist 生效了。
 
-`/workspace import <path>` and `导入项目 <path>` only accept existing directories.
+检查：
 
-Good:
+- `WECHAT_ALLOW_FROM`
+
+### 5. 导入项目失败
+
+`导入项目 <path>` 只能接受存在的目录，不能是文件。
+
+正确：
 
 ```text
 导入项目 /Users/a-znk/code/harness
 ```
 
-Bad:
+错误：
 
 ```text
 导入项目 /Users/a-znk/code/harness/package.json
 ```
 
-### Replies are too long or cut into chunks
+### 6. 原生会话列表很多、很乱
 
-This is expected. The current WeChat connector splits long output into multiple messages so that WeChat delivery succeeds.
+优先用：
 
-## Safe Restart Procedure
+```text
+当前目录会话
+```
 
-If you need to restart:
+它会：
 
-1. stop the running Better Call Codex process
-2. leave `WECHAT_SYNC_CURSOR_FILE` in place
-3. start the process again with the same `.env`
+- 按当前 workspace 过滤
+- 优先显示精确 cwd
+- 默认隐藏 subagent 噪音
 
-The saved cursor helps avoid re-consuming old messages.
+## 最终成功清单
 
-## Minimum Success Checklist
+满足这些，就说明你已经部署成功：
 
-You are done when all of these are true:
-
-- `codex --version` works
-- `pnpm check` works in this repo
-- `.env` contains valid `WECHAT_BOT_TOKEN` and `WECHAT_BASE_URL`
-- `pnpm dev` starts without configuration errors
-- `curl http://127.0.0.1:4318/health` returns `{ "ok": true }`
-- WeChat can import a workspace
-- WeChat can receive a real Codex reply
+- `codex --version` 正常
+- `pnpm check` 正常
+- `.env` 已填好正确的微信配置
+- `pnpm dev` 启动成功
+- `curl http://127.0.0.1:4318/health` 返回正常
+- 微信上可以导入 workspace
+- 微信上可以收到真实 Codex 回复

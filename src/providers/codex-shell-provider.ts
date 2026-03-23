@@ -84,8 +84,9 @@ export class CodexShellProvider implements ProviderAdapter {
       this.options.sandbox,
     ];
 
-    if (this.options.model) {
-      args.push("-m", this.options.model);
+    const resolvedModel = input.providerModel ?? this.options.model;
+    if (resolvedModel) {
+      args.push("-m", resolvedModel);
     }
 
     args.push("exec");

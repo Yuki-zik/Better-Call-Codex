@@ -1,6 +1,10 @@
 import type { HarnessConfig } from "../config.js";
+import { ConfigAuthorizer } from "../auth/config-authorizer.js";
+import type { InboundAuthorizer } from "../auth/types.js";
 import { HarnessService } from "../core/harness-service.js";
 import type { InboundChannelMessage } from "../domain/models.js";
+import { CodexSessionCatalog } from "../native/codex-session-catalog.js";
+import type { NativeSessionCatalog } from "../native/types.js";
 import { ClaudeShellProvider } from "../providers/claude-shell-provider.js";
 import { CodexShellProvider } from "../providers/codex-shell-provider.js";
 import type { ProviderAdapter } from "../providers/base.js";
@@ -15,6 +19,8 @@ export function createHarnessApp(
   config: HarnessConfig,
   store: HarnessStateStore,
   providers?: Record<"codex" | "claude", ProviderAdapter>,
+  nativeCatalogs?: Partial<Record<"codex" | "claude", NativeSessionCatalog>>,
+  authorizer?: InboundAuthorizer,
 ): HarnessApp {
   const resolvedProviders =
     providers ??
@@ -38,7 +44,13 @@ export function createHarnessApp(
 
   const service = new HarnessService(store, resolvedProviders, {
     defaultProvider: config.defaultProvider,
-  });
+  }, nativeCatalogs ?? {
+    codex: new CodexSessionCatalog(),
+  }, authorizer ?? new ConfigAuthorizer({
+    wechatAllowFrom: config.wechatAllowFrom,
+    telegramAllowFrom: config.telegramAllowFrom,
+    telegramAllowChats: config.telegramAllowChats,
+  }));
 
   return {
     service,

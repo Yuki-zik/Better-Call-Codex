@@ -30,8 +30,9 @@ export class ClaudeShellProvider implements ProviderAdapter {
 
     const args = ["-p", "--permission-mode", this.options.permissionMode];
 
-    if (this.options.model) {
-      args.push("--model", this.options.model);
+    const resolvedModel = input.providerModel ?? this.options.model;
+    if (resolvedModel) {
+      args.push("--model", resolvedModel);
     }
 
     args.push("--session-id", sessionId, "--name", input.session.name);

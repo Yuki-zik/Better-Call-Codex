@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createHarnessApp } from "../src/app/create-harness-app.js";
+import { ConfigAuthorizer } from "../src/auth/config-authorizer.js";
+import type { NativeSessionCatalog, NativeSessionSummary } from "../src/native/types.js";
 import type { ProviderAdapter } from "../src/providers/base.js";
 import { MockProvider } from "../src/providers/mock-provider.js";
 import { MemoryHarnessStateStore } from "../src/storage/memory-state-store.js";
@@ -17,6 +19,8 @@ afterEach(async () => {
 
 function createTestApp(
   providers?: Record<"codex" | "claude", ProviderAdapter>,
+  nativeCatalogs?: Partial<Record<"codex" | "claude", NativeSessionCatalog>>,
+  authorizer?: ConstructorParameters<typeof ConfigAuthorizer>[0],
 ) {
   const store = new MemoryHarnessStateStore();
   return createHarnessApp(
@@ -38,7 +42,35 @@ function createTestApp(
       codex: new MockProvider("codex"),
       claude: new MockProvider("claude"),
     },
+    nativeCatalogs,
+    authorizer ? new ConfigAuthorizer(authorizer) : undefined,
   );
+}
+
+class StaticCatalog implements NativeSessionCatalog {
+  constructor(
+    public readonly provider: "codex" | "claude",
+    private readonly sessions: NativeSessionSummary[],
+  ) {}
+
+  async listAll(): Promise<NativeSessionSummary[]> {
+    return this.sessions.filter((session) => session.provider === this.provider);
+  }
+
+  async listForWorkspace(rootPath: string): Promise<NativeSessionSummary[]> {
+    return this.sessions.filter(
+      (session) =>
+        session.provider === this.provider &&
+        (session.cwd === rootPath || session.cwd.startsWith(`${rootPath}/`)),
+    );
+  }
+
+  async findById(nativeSessionId: string): Promise<NativeSessionSummary | undefined> {
+    return this.sessions.find(
+      (session) =>
+        session.provider === this.provider && session.nativeSessionId === nativeSessionId,
+    );
+  }
 }
 
 class DeferredProvider implements ProviderAdapter {
@@ -309,6 +341,232 @@ describe("HarnessService", () => {
     const snapshot = await app.service.getStateSnapshot();
     expect(snapshot.workspaces).toHaveLength(1);
     expect(snapshot.bindings[0]?.workspaceId).toBe(snapshot.workspaces[0]?.id);
+  });
+
+  it("attaches an existing native provider session to the current workspace", async () => {
+    const app = createTestApp();
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+
+    const attached = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session attach codex thread_123 imported-session",
+    });
+
+    expect(attached.messages[0]?.text).toContain("Attached codex session");
+    expect(attached.messages[0]?.text).toContain("imported-session");
+
+    const snapshot = await app.service.getStateSnapshot();
+    const session = snapshot.sessions.find((item) => item.name === "imported-session");
+
+    expect(session).toMatchObject({
+      provider: "codex",
+      providerSessionId: "thread_123",
+      workspaceId: snapshot.workspaces[0]?.id,
+    });
+    expect(snapshot.bindings[0]?.currentSessionByProvider.codex).toBe(session?.id);
+  });
+
+  it("lists native sessions for the current workspace and switches by index", async () => {
+    const app = createTestApp(
+      undefined,
+      {
+        codex: new StaticCatalog("codex", [
+          {
+            provider: "codex",
+            nativeSessionId: "thread_current_1",
+            cwd: "/Users/a-znk/code/taskvision",
+            startedAt: "2026-03-23T11:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            nativeSessionId: "thread_other",
+            cwd: "/Users/a-znk/code/other",
+            startedAt: "2026-03-23T10:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            nativeSessionId: "thread_child",
+            cwd: "/Users/a-znk/code/taskvision/scripts",
+            startedAt: "2026-03-23T09:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            nativeSessionId: "thread_hidden_subagent",
+            cwd: "/Users/a-znk/code/taskvision",
+            startedAt: "2026-03-23T08:00:00.000Z",
+            source: "subagent",
+          },
+        ]),
+      },
+    );
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+
+    const listed = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session native list current",
+    });
+
+    expect(listed.messages[0]?.text).toContain('Native sessions for "taskvision":');
+    expect(listed.messages[0]?.text).toContain("Exact workspace matches:");
+    expect(listed.messages[0]?.text).toContain("Child paths:");
+    expect(listed.messages[0]?.text).toContain("thread_current_1");
+    expect(listed.messages[0]?.text).toContain("/Users/a-znk/code/taskvision/scripts");
+    expect(listed.messages[0]?.text).toContain("thread_child");
+    expect(listed.messages[0]?.text).not.toContain("thread_other");
+    expect(listed.messages[0]?.text).not.toContain("thread_hidden_subagent");
+    expect(listed.messages[0]?.text).toContain("Hidden 1 subagent session");
+
+    const used = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session native use 1",
+    });
+
+    expect(used.messages[0]?.text).toContain("Attached codex session");
+
+    const snapshot = await app.service.getStateSnapshot();
+    expect(snapshot.sessions.find((item) => item.providerSessionId === "thread_current_1")).toBeTruthy();
+  });
+
+  it("lists all native sessions across workspaces", async () => {
+    const app = createTestApp(
+      undefined,
+      {
+        codex: new StaticCatalog("codex", [
+          {
+            provider: "codex",
+            nativeSessionId: "thread_current_1",
+            cwd: "/Users/a-znk/code/taskvision",
+            startedAt: "2026-03-23T11:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            nativeSessionId: "thread_other",
+            cwd: "/Users/a-znk/code/other",
+            startedAt: "2026-03-23T10:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            nativeSessionId: "thread_hidden_subagent",
+            cwd: "/Users/a-znk/code/taskvision",
+            startedAt: "2026-03-23T08:00:00.000Z",
+            source: "subagent",
+          },
+        ]),
+      },
+    );
+
+    const listed = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session native list all",
+    });
+
+    expect(listed.messages[0]?.text).toContain("All native sessions:");
+    expect(listed.messages[0]?.text).toContain("- /Users/a-znk/code/taskvision");
+    expect(listed.messages[0]?.text).toContain("- /Users/a-znk/code/other");
+    expect(listed.messages[0]?.text).toContain("thread_current_1");
+    expect(listed.messages[0]?.text).toContain("thread_other");
+    expect(listed.messages[0]?.text).not.toContain("thread_hidden_subagent");
+    expect(listed.messages[0]?.text).toContain("Hidden 1 subagent session");
+  });
+
+  it("rejects attach when no workspace is selected", async () => {
+    const app = createTestApp();
+
+    const result = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session attach codex thread_123 imported-session",
+    });
+
+    expect(result.messages[0]?.text).toBe("No workspace selected.");
+  });
+
+  it("passes provider model overrides into provider turns", async () => {
+    const codex = new MockProvider("codex");
+    const app = createTestApp({
+      codex,
+      claude: new MockProvider("claude"),
+    });
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+
+    const updated = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/provider model use gpt-5-codex",
+    });
+
+    expect(updated.messages[0]?.text).toContain('Model override for "codex" set to "gpt-5-codex".');
+
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "hello model override",
+    });
+
+    expect(codex.calls[0]?.providerModel).toBe("gpt-5-codex");
+  });
+
+  it("rejects messages from users outside the allowlist", async () => {
+    const app = createTestApp(
+      {
+        codex: new MockProvider("codex"),
+        claude: new MockProvider("claude"),
+      },
+      undefined,
+      {
+        wechatAllowFrom: ["trusted@im.wechat"],
+      },
+    );
+
+    const response = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:blocked@im.wechat",
+      userId: "blocked@im.wechat",
+      text: "hello",
+      replyContext: {
+        channel: "wechat",
+        senderId: "blocked@im.wechat",
+        contextToken: "ctx-blocked",
+      },
+    });
+
+    expect(response.messages[0]?.text).toContain("Access denied.");
+    expect(response.messages[0]?.text).toContain("allowlist");
+
+    const snapshot = await app.service.getStateSnapshot();
+    expect(snapshot.bindings).toHaveLength(0);
+    expect(snapshot.sessions).toHaveLength(0);
   });
 
   it("supports wechat-style Chinese command aliases and preserves reply context", async () => {
