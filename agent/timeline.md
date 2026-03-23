@@ -2,6 +2,7 @@
 
 | 时间 | 动作 | 动机 | 结果 |
 |---|---|---|---|
+| 2026-03-24 00:10 CST | 按用户提供的产品页模式重写中英文 README，并强化微信凭据获取说明 | 现有 README 虽然信息完整，但没有完全对齐用户期望的展示风格，且 token/baseUrl 获取路径还可以更直白 | 中文 README 已按产品页风格重写，英文 README 同步到同一模式，微信部署说明保留更细的分步指导 |
 | 2026-03-23 22:28 CST | 将 README / 部署文档改为中文优先并加入中英切换 | 需要让首屏更像产品说明页，同时把 `WECHAT_BOT_TOKEN` / `WECHAT_BASE_URL` 的获取方法讲到用户一眼能懂 | README 与微信部署文档已支持中英切换，且增加 OpenClaw 场景下的最简凭据获取说明 |
 | 2026-03-23 22:15 CST | 深度重构 README 为傻瓜式部署文档 | 当前 README 对新人来说仍偏“功能说明”，缺少一条龙的上手、配置、命令、排错路径 | README 已重组为从零部署、配置、命令、架构、排错一体化文档 |
 | 2026-03-23 22:05 CST | 实现 Telegram Bot connector 与配置化 allowlist | 提升高优先级可用性，让系统具备第二渠道接入能力并补齐最基础的渠道安全边界 | 新增 Telegram polling connector、WeChat/Telegram allowlist、相关测试与文档 |
