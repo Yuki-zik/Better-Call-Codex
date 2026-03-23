@@ -2,6 +2,7 @@
 
 | 时间 | 动作 | 动机 | 结果 |
 |---|---|---|---|
+| 2026-03-23 22:28 CST | 将 README / 部署文档改为中文优先并加入中英切换 | 需要让首屏更像产品说明页，同时把 `WECHAT_BOT_TOKEN` / `WECHAT_BASE_URL` 的获取方法讲到用户一眼能懂 | README 与微信部署文档已支持中英切换，且增加 OpenClaw 场景下的最简凭据获取说明 |
 | 2026-03-23 22:15 CST | 深度重构 README 为傻瓜式部署文档 | 当前 README 对新人来说仍偏“功能说明”，缺少一条龙的上手、配置、命令、排错路径 | README 已重组为从零部署、配置、命令、架构、排错一体化文档 |
 | 2026-03-23 22:05 CST | 实现 Telegram Bot connector 与配置化 allowlist | 提升高优先级可用性，让系统具备第二渠道接入能力并补齐最基础的渠道安全边界 | 新增 Telegram polling connector、WeChat/Telegram allowlist、相关测试与文档 |
 | 2026-03-23 21:50 CST | 建立 `agent/` 交接文档体系并整理当前完成度 | 让后续 AI 代理和人工协作者能低摩擦接手当前项目状态 | 新增 `agent/project.md`、`agent/tasks.md`、`agent/timeline.md`、`agent/agents.md` |

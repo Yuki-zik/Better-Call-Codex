@@ -1,5 +1,6 @@
-[![中文说明](./WECHAT_DEPLOYMENT.md)](./WECHAT_DEPLOYMENT.md)
-[![English Docs](./WECHAT_DEPLOYMENT.en.md)](./WECHAT_DEPLOYMENT.en.md)
+<p align="center">
+  <kbd><a href="/Users/a-znk/code/harness/docs/WECHAT_DEPLOYMENT.md">中文说明</a></kbd>&ensp;|&ensp;<kbd><a href="/Users/a-znk/code/harness/docs/WECHAT_DEPLOYMENT.en.md">English</a></kbd>
+</p>
 
 # Better Call Codex 微信部署说明
 
@@ -88,6 +89,23 @@ Better Call Codex 本身不会生成 `WECHAT_BOT_TOKEN`。
 - `baseUrl`
 
 那么直接进入下一步。
+
+如果你已经完成了 OpenClaw 微信扫码连接，并且只是想最快拿到 Better Call Codex 需要的值，那么最简单的方式是直接读 OpenClaw 已经保存好的账号文件：
+
+```bash
+ls ~/.openclaw/openclaw-weixin/accounts
+cat ~/.openclaw/openclaw-weixin/accounts/<你的账号文件名>.json
+```
+
+直接找：
+
+- `token`
+- `baseUrl`
+
+然后映射到：
+
+- `WECHAT_BOT_TOKEN`
+- `WECHAT_BASE_URL`
 
 ### 方案 B：用 `wechat-agent-channel` 生成凭据
 

@@ -1,5 +1,6 @@
-[![中文说明](./WECHAT_DEPLOYMENT.md)](./WECHAT_DEPLOYMENT.md)
-[![English Docs](./WECHAT_DEPLOYMENT.en.md)](./WECHAT_DEPLOYMENT.en.md)
+<p align="center">
+  <kbd><a href="/Users/a-znk/code/harness/docs/WECHAT_DEPLOYMENT.md">中文说明</a></kbd>&ensp;|&ensp;<kbd><a href="/Users/a-znk/code/harness/docs/WECHAT_DEPLOYMENT.en.md">English</a></kbd>
+</p>
 
 # Better Call Codex WeChat Deployment Guide
 
@@ -53,6 +54,23 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm --version
 ## Step 2: Get WeChat Bridge Credentials
 
 Better Call Codex does not generate `WECHAT_BOT_TOKEN` by itself. These values come from the WeChat bridge layer.
+
+If you already connected your phone WeChat to OpenClaw, the fastest path is to read the account file OpenClaw already wrote:
+
+```bash
+ls ~/.openclaw/openclaw-weixin/accounts
+cat ~/.openclaw/openclaw-weixin/accounts/<your-account-file>.json
+```
+
+Look for:
+
+- `token`
+- `baseUrl`
+
+Then map them to:
+
+- `WECHAT_BOT_TOKEN`
+- `WECHAT_BASE_URL`
 
 The simplest reference project is:
 

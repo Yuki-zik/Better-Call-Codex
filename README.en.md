@@ -1,5 +1,24 @@
-[![中文说明](./README.md)](./README.md)
-[![English Docs](./README.en.md)](./README.en.md)
+<p align="center">
+  <img src="resources/readme-header.svg" alt="Better Call Codex" width="100%" />
+</p>
+
+<p align="center">
+  <kbd><a href="/Users/a-znk/code/harness/README.md">中文说明</a></kbd>&ensp;|&ensp;<kbd><a href="/Users/a-znk/code/harness/README.en.md">English</a></kbd>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.1.0-3B82F6?style=flat-square" alt="version 0.1.0" />&nbsp;
+  <img src="https://img.shields.io/badge/channels-WeChat%20%7C%20Telegram-0EA5E9?style=flat-square" alt="channels" />&nbsp;
+  <img src="https://img.shields.io/badge/providers-Codex%20%7C%20Claude-22C55E?style=flat-square" alt="providers" />&nbsp;
+  <img src="https://img.shields.io/badge/tests-34%20passing-16A34A?style=flat-square" alt="34 passing tests" />&nbsp;
+  <img src="https://img.shields.io/badge/native%20session-attach%20ready-0284C7?style=flat-square" alt="native session attach ready" />
+</p>
+
+<br/>
+
+<p align="center">
+  <strong>Talk to local Codex or Claude from WeChat or Telegram, manage multi-sessions, and attach existing native threads.</strong>
+</p>
 
 # Better Call Codex
 
@@ -93,6 +112,47 @@ WECHAT_BASE_URL=https://your-wechat-bridge.example.com
 WECHAT_SYNC_CURSOR_FILE=./data/wechat-sync-cursor.txt
 
 CODEX_COMMAND=/Applications/Codex.app/Contents/Resources/codex
+```
+
+### Easiest way to get `WECHAT_BOT_TOKEN` and `WECHAT_BASE_URL`
+
+If you already connected your phone WeChat to OpenClaw or an OpenClaw-based bridge, the easiest method is to read the account file OpenClaw already saved.
+
+1. List your bridge account files:
+
+```bash
+ls ~/.openclaw/openclaw-weixin/accounts
+```
+
+2. Open your own account file:
+
+```bash
+cat ~/.openclaw/openclaw-weixin/accounts/<your-account-file>.json
+```
+
+Look for these two fields:
+
+- `token`
+- `baseUrl`
+
+Example:
+
+```json
+{
+  "token": "4740ec87ef67@im.bot:......",
+  "baseUrl": "https://ilinkai.weixin.qq.com"
+}
+```
+
+Map them like this:
+
+- `token` -> `WECHAT_BOT_TOKEN`
+- `baseUrl` -> `WECHAT_BASE_URL`
+
+If your WeChat bridge was initialized through `wechat-agent-channel`, you can also read:
+
+```bash
+cat ~/.wechat-agent-channel/wechat/account.json
 ```
 
 Start:
