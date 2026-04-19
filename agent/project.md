@@ -1,6 +1,6 @@
 # Agent Context & Handoff (Better Call Codex)
 
-Last updated: 2026-03-23 (local session)
+Last updated: 2026-03-24 (local session)
 
 ## 1) Project Goal
 
@@ -56,7 +56,9 @@ flowchart LR
 - `Workspace`
   Allowlisted local project root with slug and allowed providers.
 - `Session`
-  Better Call Codex session record tied to one workspace and one provider.
+  Better Call Codex session record tied to one workspace and one provider, with history coverage metadata for full, attached, or legacy sessions.
+- `SessionTurn`
+  Locally recorded per-turn history entry used for `/session current` and `/session history` style inspection.
 - `ChannelBinding`
   One Telegram or WeChat conversation scope with:
   - selected workspace
@@ -93,12 +95,14 @@ flowchart LR
 - workspace registration and chat-driven workspace import
 - binding-level serialization with cross-binding parallelism
 - multiple sessions per workspace/provider
+- current-session detail and local recorded history inspection
 - provider switching and model override commands
 - WeChat runtime connector and reply-context handling
 - Telegram runtime connector and reply-context handling
 - config-based inbound allowlists for WeChat and Telegram
 - native Codex session discovery
 - native session attach and switch workflow
+- local turn-history recording for post-attach and newly created sessions
 - Chinese command aliases for WeChat
 - detailed WeChat deployment guide
 
@@ -168,6 +172,7 @@ Latest known state:
 - All current Vitest suites pass
 - Real WeChat connectivity has been proven on the local machine
 - Native Codex session attach/resume has been proven via command-line test
+- `/session current` and `/session history` are covered by service-level tests
 - Telegram connector logic is covered by tests
 - allowlist enforcement is covered by service-level tests
 

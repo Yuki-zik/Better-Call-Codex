@@ -61,7 +61,7 @@ Better Call Codex is a **personal-computer-first** chat hub. It exposes local `c
 **1. Install**
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm install
 cp .env.example .env
 ```
@@ -130,7 +130,7 @@ curl http://127.0.0.1:4318/health
 **6. Test in WeChat**
 
 ```text
-导入项目 /Users/a-znk/code/harness
+导入项目 /Users/a-znk/code/Better-Call-Codex
 状态
 Please summarize what this repository does
 ```

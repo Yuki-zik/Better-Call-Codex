@@ -133,7 +133,7 @@ cat ~/.wechat-agent-channel/wechat/account.json
 回到本项目：
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 cp .env.example .env
 ```
 
@@ -173,7 +173,7 @@ WECHAT_ALLOW_FROM=<你的微信senderId>
 ## 第四步：安装并验证项目
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm install
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm check
 ```
@@ -188,7 +188,7 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm check
 ## 第五步：启动服务
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 ```
 
@@ -234,10 +234,12 @@ curl http://127.0.0.1:4318/state
 
 打开微信，在接好的桥接会话里依次发送：
 
+注意：所有命令都必须以 `/` 开头，包括中文别名。你也可以先发 `/` 或 `/命令列表` 看完整命令表。
+
 ### 7.1 导入项目
 
 ```text
-导入项目 /Users/a-znk/code/harness
+/导入项目 /Users/a-znk/code/Better-Call-Codex
 ```
 
 预期：
@@ -248,7 +250,7 @@ curl http://127.0.0.1:4318/state
 ### 7.2 查看状态
 
 ```text
-状态
+/状态
 ```
 
 预期：
@@ -274,36 +276,46 @@ curl http://127.0.0.1:4318/state
 工作区：
 
 ```text
-导入项目 /Users/yourname/code/project-a
-项目列表
-切换项目 project-a
-状态
+/导入项目 /Users/yourname/code/project-a
+/项目列表
+/切换项目 project-a
+/状态
 ```
 
 会话：
 
 ```text
-新建会话 修复登录流程
-会话列表
-切换会话 1
-切换会话 修复登录流程
+/新建会话 修复登录流程
+/会话列表
+/当前会话详情
+/会话历史
+/会话历史 10
+/切换会话 1
+/切换会话 修复登录流程
 ```
+
+补充说明：
+
+- `/当前会话详情` 会显示当前 provider 下当前会话的状态、最近输入输出和历史覆盖范围
+- `/会话历史` 默认看最近 5 轮
+- 如果这个会话是通过 `/session attach` 接进来的，你只能看到 Better Call Codex 接管后的历史，接管前历史不会在这里补造
 
 原生会话：
 
 ```text
-当前目录会话
-原生会话列表
-切换原生会话 1
+/当前目录会话
+/原生会话列表
+/切换原生会话 1
 /session attach codex <native-id> [name]
 ```
 
 模型：
 
 ```text
-当前模型
-切换模型 codex
-切换具体模型 gpt-5-codex
+/当前提供方
+/切换提供方 codex
+/当前模型
+/切换具体模型 gpt-5-codex
 ```
 
 ---
@@ -339,18 +351,18 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 
 ### 导入项目失败
 
-`导入项目 <path>` 只能接受存在的目录，不能是文件。
+`/导入项目 <path>` 只能接受存在的目录，不能是文件。
 
 正确：
 
 ```text
-导入项目 /Users/a-znk/code/harness
+/导入项目 /Users/a-znk/code/Better-Call-Codex
 ```
 
 错误：
 
 ```text
-导入项目 /Users/a-znk/code/harness/package.json
+/导入项目 /Users/a-znk/code/Better-Call-Codex/package.json
 ```
 
 ### 原生会话列表很多很乱
@@ -358,7 +370,7 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 优先用：
 
 ```text
-当前目录会话
+/当前目录会话
 ```
 
 因为它会：
@@ -380,3 +392,150 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 - `curl http://127.0.0.1:4318/health` 返回正常
 - 微信上可以导入 workspace
 - 微信上可以收到真实 Codex 回复
+
+---
+
+## 实测记录（2026-03-24 00:42 CST）
+
+这部分是我直接在当前机器上做的 smoke test 记录，对应的是当前最新代码，而不是旧进程残留状态。
+
+### 本轮实测环境
+
+- 当前运行方式：`/opt/homebrew/bin/node dist/src/server.js`
+- `HARNESS_ENABLE_WECHAT=true`
+- `HARNESS_LIVE_PROVIDERS=true`
+- `WECHAT_BOT_TOKEN` 已配置
+- `WECHAT_BASE_URL=https://ilinkai.weixin.qq.com`
+- `CODEX_COMMAND=/Applications/Codex.app/Contents/Resources/codex`
+
+### 已直接验证通过
+
+1. 本地服务健康检查通过
+
+```bash
+curl http://127.0.0.1:4318/health
+```
+
+结果：
+
+```json
+{ "ok": true }
+```
+
+2. 当前服务已加载真实微信状态
+
+```bash
+curl http://127.0.0.1:4318/state
+```
+
+结果摘要：
+
+- 已存在真实微信 binding
+- 已存在 `Better-Call-Codex` workspace
+- 已存在可续接的 codex session
+
+3. 真实微信桥 `getupdates` 可达
+
+测试方式：
+
+- 使用本机 `.env` 中的真实 `WECHAT_BOT_TOKEN`
+- 直接请求 `https://ilinkai.weixin.qq.com/ilink/bot/getupdates`
+- 使用当前 cursor 发起请求
+
+结果：
+
+- HTTP `200`
+- 返回结构合法
+- `msgs=[]`
+- 返回了新的同步 cursor
+
+这说明：
+
+- token 有效
+- base URL 可用
+- 轮询接口可正常响应
+
+4. 真实微信桥 `sendmessage` 可达
+
+测试方式：
+
+- 读取当前真实微信 binding 的 `replyContext`
+- 直接请求 `sendmessage`
+- 发送一条短消息：`Better Call Codex smoke test: outbound bridge OK.`
+
+结果：
+
+- HTTP `200`
+- 返回体：`{}`
+
+这说明：
+
+- 当前 reply context 可用于回包
+- 机器人向微信回消息的 API 调用成功
+
+5. 最新服务进程上的 slash-first 命令体系生效
+
+测试方式：
+
+```bash
+POST /channels/wechat/inbound
+text="/"
+```
+
+结果：
+
+- 返回完整命令表
+- 明确提示“所有命令都必须以 `/` 开头”
+- `/commands`、微信 slash 别名等帮助入口已经在返回文本中出现
+
+6. live Codex provider 执行通过
+
+测试方式：
+
+```bash
+POST /channels/wechat/inbound
+text="Reply with exactly: SMOKE_LIVE_PROVIDER_OK_20260324"
+```
+
+结果：
+
+- 返回文本：`SMOKE_LIVE_PROVIDER_OK_20260324`
+- 目标 session `turnCount` 从 `1` 增加到 `2`
+- `lastError=null`
+
+这说明：
+
+- 当前服务进程可正常调起本机 Codex
+- 会话续接正常
+- 最新代码下的核心链路是通的
+
+### 这轮还没有直接观察到的部分
+
+本轮没有从“手机微信手动新发一条消息”来观察运行中 connector 自动消费并自动回包的全过程，因为这个动作需要你的人机侧配合。
+
+不过基于上面的结果，我们已经直接验证了这三层都正常：
+
+- 微信桥轮询入口正常
+- 微信桥回包入口正常
+- Better Call Codex 最新服务 + live Codex provider 正常
+
+所以当前判断是：
+
+- 微信部署链路整体健康
+- 只差你在手机上再发一条真实消息，确认肉眼可见回包
+
+### 你现在只需要补这一眼
+
+在微信里发：
+
+```text
+/状态
+```
+
+再发：
+
+```text
+/命令列表
+```
+
+如果都能收到回复，这一轮 smoke test 就算从终端和手机两侧都闭环完成。

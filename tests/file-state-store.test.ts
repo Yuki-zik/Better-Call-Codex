@@ -30,6 +30,7 @@ describe("FileHarnessStateStore", () => {
       workspaces: [],
       sessions: [],
       bindings: [],
+      sessionTurns: [],
     });
   });
 
@@ -81,10 +82,49 @@ describe("FileHarnessStateStore", () => {
       ],
       sessions: [],
       bindings: [],
+      sessionTurns: [],
     };
 
     await store.save(state);
 
     await expect(store.load()).resolves.toEqual(state);
+  });
+
+  it("hydrates legacy state files with history defaults", async () => {
+    const filePath = await createTempFilePath("legacy-state.json");
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        workspaces: [],
+        sessions: [
+          {
+            id: "session-1",
+            workspaceId: "ws_blog",
+            provider: "codex",
+            name: "legacy-session",
+            providerSessionId: "thread_123",
+            status: "idle",
+            turnCount: 2,
+            lastInput: "hello",
+            lastOutput: "world",
+            lastError: null,
+            createdAt: "2026-03-24T00:00:00.000Z",
+            updatedAt: "2026-03-24T00:00:00.000Z",
+            archivedAt: null,
+          },
+        ],
+        bindings: [],
+      }),
+      "utf-8",
+    );
+
+    const store = new FileHarnessStateStore(filePath);
+    const loaded = await store.load();
+
+    expect(loaded.sessionTurns).toEqual([]);
+    expect(loaded.sessions[0]).toMatchObject({
+      name: "legacy-session",
+      historyMode: "legacy",
+    });
   });
 });

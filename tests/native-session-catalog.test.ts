@@ -46,7 +46,7 @@ describe("CodexSessionCatalog", () => {
     const root = await createSessionsRoot();
     await writeCodexSession(root, "2026/03/23/session-1.jsonl", {
       id: "thread_1",
-      cwd: "/Users/a-znk/code/harness",
+      cwd: "/Users/a-znk/code/Better-Call-Codex",
       timestamp: "2026-03-23T11:00:00.000Z",
       originator: "Codex Desktop",
     });
@@ -59,11 +59,11 @@ describe("CodexSessionCatalog", () => {
     const catalog = new CodexSessionCatalog({ sessionsRoot: root });
 
     const all = await catalog.listAll();
-    const current = await catalog.listForWorkspace("/Users/a-znk/code/harness");
+    const current = await catalog.listForWorkspace("/Users/a-znk/code/Better-Call-Codex");
     const found = await catalog.findById("thread_1");
 
     expect(all.map((session) => session.nativeSessionId)).toEqual(["thread_1", "thread_2"]);
     expect(current.map((session) => session.nativeSessionId)).toEqual(["thread_1"]);
-    expect(found?.cwd).toBe("/Users/a-znk/code/harness");
+    expect(found?.cwd).toBe("/Users/a-znk/code/Better-Call-Codex");
   });
 });

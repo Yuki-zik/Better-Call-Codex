@@ -1,5 +1,5 @@
 <p align="center">
-  <kbd><a href="/Users/a-znk/code/harness/docs/WECHAT_DEPLOYMENT.md">中文说明</a></kbd>&ensp;|&ensp;<kbd><a href="/Users/a-znk/code/harness/docs/WECHAT_DEPLOYMENT.en.md">English</a></kbd>
+  <kbd><a href="/Users/a-znk/code/Better-Call-Codex/docs/WECHAT_DEPLOYMENT.md">中文说明</a></kbd>&ensp;|&ensp;<kbd><a href="/Users/a-znk/code/Better-Call-Codex/docs/WECHAT_DEPLOYMENT.en.md">English</a></kbd>
 </p>
 
 # Better Call Codex WeChat Deployment Guide
@@ -90,7 +90,7 @@ Map:
 ## Step 3: Configure Better Call Codex
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 cp .env.example .env
 ```
 
@@ -120,7 +120,7 @@ CODEX_APPROVAL=never
 ## Step 4: Install and Validate
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm install
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm check
 ```
@@ -128,7 +128,7 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm check
 ## Step 5: Start
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 ```
 
@@ -150,13 +150,23 @@ Expected:
 
 Send these in WeChat:
 
+All commands must start with `/`, including the Chinese aliases.
+
 ```text
-导入项目 /Users/a-znk/code/harness
-状态
+/导入项目 /Users/a-znk/code/Better-Call-Codex
+/状态
+/当前会话详情
+/会话历史
 请帮我总结这个仓库是做什么的
 ```
 
 If you receive a real Codex reply, deployment is working.
+
+Notes:
+
+- `/当前会话详情` shows the current session state, last input/output, and history coverage
+- `/会话历史` shows the most recent 5 locally recorded turns by default
+- for attached native sessions, Better Call Codex only shows turns recorded after the attach point
 
 ## Common Problems
 

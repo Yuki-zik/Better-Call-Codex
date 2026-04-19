@@ -5,6 +5,10 @@ Last updated: 2026-03-23
 ## 1) Working Rules
 
 - Always read `agent/timeline.md` and `agent/tasks.md` first.
+- Parallelize independent subtasks by default (exploration, docs checks, test triage, disjoint code slices).
+- Keep subagent write ownership disjoint; main agent handles final convergence on critical path.
+- Tune subagent reasoning effort by complexity: `low` (lookup), `medium` (routine implementation), `high` (cross-module/debug), `xhigh` (architecture/security tradeoffs, default).
+- Start with lower effort and escalate only when evidence quality is insufficient.
 - Keep changes minimal and reversible.
 - Prefer tests first when adding features or fixing bugs.
 - Update `agent/tasks.md` before and after substantial work.
@@ -26,6 +30,7 @@ Last updated: 2026-03-23
 - Do not claim Telegram real integration exists.
 - Do not claim Claude real session discovery exists unless implemented and tested.
 - Do not invent a provider reasoning-effort command unless the underlying CLI supports it in a stable, verified way.
+- If explicit provider-level reasoning controls are unavailable, approximate via task decomposition and model selection instead of inventing unsupported commands.
 
 ## 3) Preferred Commands
 

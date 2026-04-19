@@ -6,6 +6,7 @@ export const channelKinds = ["telegram", "wechat"] as const;
 export type ProviderKind = (typeof providerKinds)[number];
 export type ChannelKind = (typeof channelKinds)[number];
 export type SessionStatus = "idle" | "busy" | "error";
+export type SessionHistoryMode = "full" | "attached" | "legacy";
 
 export interface TelegramReplyContext {
   channel: "telegram";
@@ -39,6 +40,7 @@ export interface SessionRecord {
   provider: ProviderKind;
   name: string;
   providerSessionId: string | null;
+  historyMode: SessionHistoryMode;
   status: SessionStatus;
   turnCount: number;
   lastInput: string | null;
@@ -47,6 +49,17 @@ export interface SessionRecord {
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
+}
+
+export interface SessionTurnRecord {
+  id: string;
+  sessionId: string;
+  sequence: number;
+  provider: ProviderKind;
+  inputText: string;
+  outputText: string | null;
+  errorText: string | null;
+  createdAt: string;
 }
 
 export interface ChannelBindingRecord {
@@ -67,6 +80,7 @@ export interface HarnessState {
   workspaces: WorkspaceRecord[];
   sessions: SessionRecord[];
   bindings: ChannelBindingRecord[];
+  sessionTurns: SessionTurnRecord[];
 }
 
 export interface InboundChannelMessage {
@@ -104,6 +118,7 @@ export function createEmptyState(): HarnessState {
     workspaces: [],
     sessions: [],
     bindings: [],
+    sessionTurns: [],
   };
 }
 
@@ -116,6 +131,10 @@ export function createWorkspaceId(slug: string): string {
 }
 
 export function createSessionId(): string {
+  return randomUUID();
+}
+
+export function createSessionTurnId(): string {
   return randomUUID();
 }
 

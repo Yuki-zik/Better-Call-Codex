@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   createBindingId,
   createSessionId,
+  createSessionTurnId,
   createWorkspaceId,
   nowIso,
   providerKinds,
@@ -13,7 +14,9 @@ import {
   type InboundChannelMessage,
   type OutboundChannelMessage,
   type ProviderKind,
+  type SessionHistoryMode,
   type SessionRecord,
+  type SessionTurnRecord,
   type WorkspaceRecord,
 } from "../domain/models.js";
 import type { InboundAuthorizer } from "../auth/types.js";
@@ -48,6 +51,12 @@ interface PreparedTurn {
 
 interface NativeSessionListResult {
   sessions: NativeSessionSummary[];
+  hiddenSubagentCount: number;
+}
+
+interface NativeSessionDisplayResult {
+  lines: string[];
+  orderedSessions: NativeSessionSummary[];
   hiddenSubagentCount: number;
 }
 
@@ -249,6 +258,11 @@ export class HarnessService {
         session.turnCount += 1;
         session.status = "idle";
         session.updatedAt = nowIso();
+        this.recordSessionTurn(state, session, {
+          inputText: inbound.text,
+          outputText: result.text,
+          errorText: null,
+        });
         binding.updatedAt = nowIso();
         await this.persist();
 
@@ -278,6 +292,11 @@ export class HarnessService {
         session.lastError = message;
         session.status = "error";
         session.updatedAt = nowIso();
+        this.recordSessionTurn(state, session, {
+          inputText: inbound.text,
+          outputText: null,
+          errorText: message,
+        });
         binding.updatedAt = nowIso();
         await this.persist();
 
@@ -333,7 +352,16 @@ export class HarnessService {
 
   private async loadState(): Promise<HarnessState> {
     if (!this.state) {
-      this.state = await this.store.load();
+      const loaded = await this.store.load();
+      this.state = {
+        workspaces: loaded.workspaces ?? [],
+        sessions: loaded.sessions.map((session) => ({
+          ...session,
+          historyMode: this.normalizeHistoryMode(session.historyMode),
+        })),
+        bindings: loaded.bindings ?? [],
+        sessionTurns: loaded.sessionTurns ?? [],
+      };
     }
     return this.state;
   }
@@ -411,29 +439,12 @@ export class HarnessService {
     binding: ChannelBindingRecord,
     command: HarnessCommand,
   ): Promise<string> {
+    if (command.name === "invalid") {
+      return command.message;
+    }
+
     if (command.name === "help") {
-      return [
-        "Better Call Codex commands:",
-        "/status",
-        "/workspace list",
-        "/workspace use <slug>",
-        "/workspace import <path>",
-        "/provider list",
-        "/provider current",
-        "/provider use <codex|claude>",
-        "/provider model current",
-        "/provider model use <model>",
-        "/provider model clear",
-        "/session list",
-        "/session new [name]",
-        "/session attach <codex|claude> <native-id> [name]",
-        "/session native list [current|all]",
-        "/session native use [current|all] <index|native-id>",
-        "/session use <id|name|index>",
-        "/session archive <id|name|index>",
-        "/new [name]",
-        "/switch <id|name|index>",
-      ].join("\n");
+      return this.renderHelp();
     }
 
     if (command.name === "status") {
@@ -540,6 +551,14 @@ export class HarnessService {
       return lines.concat(ordered).join("\n");
     }
 
+    if (command.name === "session" && command.action === "current") {
+      return this.renderCurrentSession(state, binding);
+    }
+
+    if (command.name === "session" && command.action === "history") {
+      return this.renderSessionHistory(state, binding, command.limit);
+    }
+
     if (command.name === "session" && command.action === "new") {
       const workspace = this.getSelectedWorkspace(state, binding);
       if (!workspace) {
@@ -576,6 +595,7 @@ export class HarnessService {
       }
 
       const resolved = await this.resolveNativeSession(
+        state,
         workspace,
         command.scope,
         command.selector,
@@ -763,54 +783,135 @@ export class HarnessService {
     ].join("\n");
   }
 
+  private renderCurrentSession(
+    state: HarnessState,
+    binding: ChannelBindingRecord,
+  ): string {
+    const session = this.getCurrentSession(state, binding, binding.preferredProvider);
+    if (!session) {
+      return [
+        `No current ${binding.preferredProvider} session.`,
+        "Use /session new, /session use, or send a normal message first.",
+      ].join("\n");
+    }
+
+    const workspace = state.workspaces.find((item) => item.id === session.workspaceId);
+    const recordedTurns = this.listTurnsForSession(state, session.id);
+
+    return [
+      "Current session:",
+      `Provider: ${session.provider}`,
+      `Workspace: ${workspace?.slug ?? "<unknown>"}`,
+      `Name: ${session.name}`,
+      `Session ID: ${shortId(session.id)} (${session.id})`,
+      `Provider session ID: ${session.providerSessionId ?? "<not started yet>"}`,
+      `Status: ${session.status}`,
+      `Successful turns: ${session.turnCount}`,
+      `Recorded turns here: ${recordedTurns.length}`,
+      `History coverage: ${this.describeHistoryCoverage(session)}`,
+      `Last user message: ${this.renderTextPreview(session.lastInput)}`,
+      `Last assistant reply: ${this.renderTextPreview(session.lastOutput)}`,
+      `Last error: ${this.renderTextPreview(session.lastError)}`,
+    ].join("\n");
+  }
+
+  private renderSessionHistory(
+    state: HarnessState,
+    binding: ChannelBindingRecord,
+    limit: number,
+  ): string {
+    const session = this.getCurrentSession(state, binding, binding.preferredProvider);
+    if (!session) {
+      return [
+        `No current ${binding.preferredProvider} session.`,
+        "Use /session new, /session use, or send a normal message first.",
+      ].join("\n");
+    }
+
+    const turns = this.listTurnsForSession(state, session.id);
+    if (turns.length === 0) {
+      return [
+        `Recorded history for ${session.provider}/${session.name}:`,
+        "Showing 0 of 0 recorded turn(s).",
+        `History coverage: ${this.describeHistoryCoverage(session)}`,
+      ].join("\n");
+    }
+
+    const selectedTurns = turns.slice(-limit);
+    const lines = [
+      `Recorded history for ${session.provider}/${session.name}:`,
+      `Showing ${selectedTurns.length} of ${turns.length} recorded turn(s).`,
+      `History coverage: ${this.describeHistoryCoverage(session)}`,
+    ];
+
+    for (const turn of selectedTurns) {
+      lines.push(`Turn ${turn.sequence} | ${turn.createdAt}`);
+      lines.push(`User: ${this.renderTextPreview(turn.inputText)}`);
+      if (turn.errorText) {
+        lines.push(`Error: ${this.renderTextPreview(turn.errorText)}`);
+      } else {
+        lines.push(`Assistant: ${this.renderTextPreview(turn.outputText)}`);
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  private renderHelp(): string {
+    return [
+      "Better Call Codex commands:",
+      "All commands must start with /.",
+      "/",
+      "",
+      "Status and workspace:",
+      "/status",
+      "/workspace list",
+      "/workspace use <slug>",
+      "/workspace import <path>",
+      "",
+      "Provider and model:",
+      "/provider list",
+      "/provider current",
+      "/provider use <codex|claude>",
+      "/provider model current",
+      "/provider model use <model>",
+      "/provider model clear",
+      "",
+      "Sessions:",
+      "/session current",
+      "/session history [count]",
+      "/session list",
+      "/session new [name]",
+      "/session use <id|name|index>",
+      "/session archive <id|name|index>",
+      "/history [count]",
+      "/new [name]",
+      "/switch <id|name|index>",
+      "",
+      "Native sessions:",
+      "/session attach <codex|claude> <native-id> [name]",
+      "/session native list [current|all]",
+      "/session native use [current|all] <index|native-id>",
+      "",
+      "Help:",
+      "/help",
+      "/commands",
+      "",
+      "WeChat slash aliases also work: /状态 /导入项目 /新建会话 /会话列表 /当前会话详情 /会话历史 5",
+    ].join("\n");
+  }
+
   private async renderNativeSessions(
     state: HarnessState,
     workspace: WorkspaceRecord | undefined,
     scope: "current" | "all",
   ): Promise<string> {
-    const { sessions, hiddenSubagentCount } = await this.listNativeSessions(workspace, scope);
-    if (sessions.length === 0) {
+    const { lines, orderedSessions, hiddenSubagentCount } =
+      await this.buildNativeSessionDisplay(state, workspace, scope);
+    if (orderedSessions.length === 0) {
       return scope === "current"
         ? `No native sessions found for workspace "${workspace?.slug ?? "<none>"}".`
         : "No native sessions found.";
-    }
-
-    const lines = [
-      scope === "current"
-        ? `Native sessions for "${workspace?.slug}":`
-        : "All native sessions:",
-    ];
-
-    let index = 1;
-    if (scope === "current" && workspace) {
-      const exactMatches = sessions.filter((session) => session.cwd === workspace.rootPath);
-      const childMatches = sessions.filter((session) => session.cwd !== workspace.rootPath);
-
-      if (exactMatches.length > 0) {
-        lines.push("Exact workspace matches:");
-        for (const session of this.sortNativeSessionsForDisplay(state, exactMatches)) {
-          lines.push(this.renderNativeSessionLine(index++, state, session));
-        }
-      }
-
-      if (childMatches.length > 0) {
-        lines.push("Child paths:");
-        const grouped = this.groupSessionsByCwd(childMatches);
-        for (const [cwd, groupedSessions] of grouped) {
-          lines.push(`- ${cwd}`);
-          for (const session of this.sortNativeSessionsForDisplay(state, groupedSessions)) {
-            lines.push(this.renderNativeSessionLine(index++, state, session, { hideCwd: true }));
-          }
-        }
-      }
-    } else {
-      const grouped = this.groupSessionsByCwd(sessions);
-      for (const [cwd, groupedSessions] of grouped) {
-        lines.push(`- ${cwd}`);
-        for (const session of this.sortNativeSessionsForDisplay(state, groupedSessions)) {
-          lines.push(this.renderNativeSessionLine(index++, state, session, { hideCwd: true }));
-        }
-      }
     }
 
     if (hiddenSubagentCount > 0) {
@@ -853,6 +954,7 @@ export class HarnessService {
   }
 
   private async resolveNativeSession(
+    state: HarnessState,
     workspace: WorkspaceRecord | undefined,
     scope: "current" | "all" | "auto",
     selector: string,
@@ -862,6 +964,8 @@ export class HarnessService {
       return null;
     }
 
+    const effectiveScope = this.resolveNativeScope(scope, workspace);
+
     if (!/^\d+$/.test(normalized)) {
       for (const provider of providerKinds) {
         const catalog = this.nativeCatalogs[provider];
@@ -869,7 +973,7 @@ export class HarnessService {
           continue;
         }
         const found = await catalog.findById(normalized);
-        if (found) {
+        if (found && this.nativeSessionMatchesScope(found, workspace, effectiveScope)) {
           return {
             ...found,
             defaultName: `${found.provider}-${shortId(found.nativeSessionId)}`,
@@ -879,11 +983,8 @@ export class HarnessService {
       return null;
     }
 
-    const { sessions } = await this.listNativeSessions(
-      workspace,
-      scope === "all" ? "all" : "current",
-    );
-    const resolved = sessions[Number(normalized) - 1];
+    const display = await this.buildNativeSessionDisplay(state, workspace, effectiveScope);
+    const resolved = display.orderedSessions[Number(normalized) - 1];
     if (!resolved) {
       return null;
     }
@@ -892,6 +993,33 @@ export class HarnessService {
       ...resolved,
       defaultName: `${resolved.provider}-${shortId(resolved.nativeSessionId)}`,
     };
+  }
+
+  private resolveNativeScope(
+    scope: "current" | "all" | "auto",
+    workspace: WorkspaceRecord | undefined,
+  ): "current" | "all" {
+    if (scope === "current" || scope === "all") {
+      return scope;
+    }
+    return workspace ? "current" : "all";
+  }
+
+  private nativeSessionMatchesScope(
+    session: NativeSessionSummary,
+    workspace: WorkspaceRecord | undefined,
+    scope: "current" | "all",
+  ): boolean {
+    if (scope === "all") {
+      return true;
+    }
+    if (!workspace) {
+      return false;
+    }
+    return (
+      session.cwd === workspace.rootPath ||
+      session.cwd.startsWith(`${workspace.rootPath}/`)
+    );
   }
 
   private attachNativeSession(
@@ -992,6 +1120,64 @@ export class HarnessService {
     );
   }
 
+  private async buildNativeSessionDisplay(
+    state: HarnessState,
+    workspace: WorkspaceRecord | undefined,
+    scope: "current" | "all",
+  ): Promise<NativeSessionDisplayResult> {
+    const { sessions, hiddenSubagentCount } = await this.listNativeSessions(workspace, scope);
+    const lines = [
+      scope === "current"
+        ? `Native sessions for "${workspace?.slug}":`
+        : "All native sessions:",
+    ];
+    const orderedSessions: NativeSessionSummary[] = [];
+
+    let index = 1;
+    if (scope === "current" && workspace) {
+      const exactMatches = this.sortNativeSessionsForDisplay(
+        state,
+        sessions.filter((session) => session.cwd === workspace.rootPath),
+      );
+      const childMatches = sessions.filter((session) => session.cwd !== workspace.rootPath);
+
+      if (exactMatches.length > 0) {
+        lines.push("Exact workspace matches:");
+        for (const session of exactMatches) {
+          orderedSessions.push(session);
+          lines.push(this.renderNativeSessionLine(index++, state, session));
+        }
+      }
+
+      if (childMatches.length > 0) {
+        lines.push("Child paths:");
+        const grouped = this.groupSessionsByCwd(childMatches);
+        for (const [cwd, groupedSessions] of grouped) {
+          lines.push(`- ${cwd}`);
+          for (const session of this.sortNativeSessionsForDisplay(state, groupedSessions)) {
+            orderedSessions.push(session);
+            lines.push(this.renderNativeSessionLine(index++, state, session, { hideCwd: true }));
+          }
+        }
+      }
+    } else {
+      const grouped = this.groupSessionsByCwd(sessions);
+      for (const [cwd, groupedSessions] of grouped) {
+        lines.push(`- ${cwd}`);
+        for (const session of this.sortNativeSessionsForDisplay(state, groupedSessions)) {
+          orderedSessions.push(session);
+          lines.push(this.renderNativeSessionLine(index++, state, session, { hideCwd: true }));
+        }
+      }
+    }
+
+    return {
+      lines,
+      orderedSessions,
+      hiddenSubagentCount,
+    };
+  }
+
   private resolveProvider(selector: string): ProviderKind | null {
     const normalized = selector.trim().toLowerCase();
     return providerKinds.find((provider) => provider === normalized) ?? null;
@@ -1045,6 +1231,7 @@ export class HarnessService {
       name,
       providerSessionId:
         attachedProviderSessionId ?? (provider === "claude" ? id : null),
+      historyMode: attachedProviderSessionId ? "attached" : "full",
       status: "idle",
       turnCount: 0,
       lastInput: null,
@@ -1138,6 +1325,39 @@ export class HarnessService {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  private listTurnsForSession(
+    state: HarnessState,
+    sessionId: string,
+  ): SessionTurnRecord[] {
+    return state.sessionTurns
+      .filter((turn) => turn.sessionId === sessionId)
+      .sort((left, right) => left.sequence - right.sequence);
+  }
+
+  private recordSessionTurn(
+    state: HarnessState,
+    session: SessionRecord,
+    input: {
+      inputText: string;
+      outputText: string | null;
+      errorText: string | null;
+    },
+  ): void {
+    const nextSequence =
+      this.listTurnsForSession(state, session.id).at(-1)?.sequence ?? 0;
+
+    state.sessionTurns.push({
+      id: createSessionTurnId(),
+      sessionId: session.id,
+      sequence: nextSequence + 1,
+      provider: session.provider,
+      inputText: input.inputText,
+      outputText: input.outputText,
+      errorText: input.errorText,
+      createdAt: nowIso(),
+    });
+  }
+
   private resolveSessionSelector(
     state: HarnessState,
     workspaceId: string,
@@ -1157,6 +1377,38 @@ export class HarnessService {
         shortId(session.id) === normalized ||
         session.name.toLowerCase() === normalized,
     );
+  }
+
+  private describeHistoryCoverage(session: SessionRecord): string {
+    if (session.historyMode === "full") {
+      return "full since session creation.";
+    }
+
+    if (session.historyMode === "attached") {
+      return "attached session. Only turns recorded since this session was attached in Better Call Codex are available here. Pre-attach provider history is not available here.";
+    }
+
+    return "legacy session. Only turns recorded after Better Call Codex history tracking was introduced are available here.";
+  }
+
+  private normalizeHistoryMode(mode: SessionHistoryMode | undefined): SessionHistoryMode {
+    if (mode === "full" || mode === "attached" || mode === "legacy") {
+      return mode;
+    }
+    return "legacy";
+  }
+
+  private renderTextPreview(text: string | null, maxLength = 240): string {
+    if (!text?.trim()) {
+      return "<none>";
+    }
+
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+
+    return `${normalized.slice(0, maxLength - 3)}...`;
   }
 
   private createOutbound(

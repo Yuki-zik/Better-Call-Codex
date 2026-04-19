@@ -65,7 +65,7 @@ Better Call Codex 是一个**个人电脑优先**的聊天中枢。它把你电�
 ### 1. 安装依赖
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm install
 cp .env.example .env
 ```
@@ -126,7 +126,7 @@ CODEX_COMMAND=/Applications/Codex.app/Contents/Resources/codex
 ### 4. 启动
 
 ```bash
-cd /Users/a-znk/code/harness
+cd /Users/a-znk/code/Better-Call-Codex
 PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev
 ```
 
@@ -145,8 +145,8 @@ curl http://127.0.0.1:4318/health
 ### 6. 在微信里试试
 
 ```text
-导入项目 /Users/a-znk/code/harness
-状态
+/导入项目 /Users/a-znk/code/Better-Call-Codex
+/状态
 请帮我总结这个仓库是做什么的
 ```
 
@@ -196,7 +196,7 @@ Channel Binding  -> 一个具体的微信 / Telegram 对话窗口
 
 这意味着同一个微信会话可以同时做到：
 
-1. 选中工作区 `harness`
+1. 选中工作区 `Better-Call-Codex`
 2. 保留一个当前 Codex 会话
 3. 保留一个当前 Claude 会话
 4. 在它们之间切换而不丢状态
@@ -247,15 +247,17 @@ TELEGRAM_BOT_TOKEN=<your-token>
 
 ## 命令参考
 
+所有命令都必须以 `/` 开头，包括中文别名。你也可以发送 `/`、`/help` 或 `/命令列表` 查看完整命令表。
+
 <details>
 <summary><b>状态与工作区</b></summary>
 
 | 命令 | 微信别名 |
 |---|---|
-| `/status` | `状态` |
-| `/workspace list` | `项目列表` |
-| `/workspace use <slug>` | `切换项目 <slug>` |
-| `/workspace import <path>` | `导入项目 <path>` |
+| `/status` | `/状态` |
+| `/workspace list` | `/项目列表` |
+| `/workspace use <slug>` | `/切换项目 <slug>` |
+| `/workspace import <path>` | `/导入项目 <path>` |
 
 </details>
 
@@ -265,11 +267,11 @@ TELEGRAM_BOT_TOKEN=<your-token>
 | 命令 | 微信别名 |
 |---|---|
 | `/provider list` | 无 |
-| `/provider current` | 无 |
-| `/provider use codex` | `切换模型 codex` |
-| `/provider use claude` | `切换模型 claude` |
-| `/provider model current` | `当前模型` |
-| `/provider model use <model>` | `切换具体模型 <model>` |
+| `/provider current` | `/当前提供方` |
+| `/provider use codex` | `/切换提供方 codex` 或 `/切换模型 codex` |
+| `/provider use claude` | `/切换提供方 claude` 或 `/切换模型 claude` |
+| `/provider model current` | `/当前模型` |
+| `/provider model use <model>` | `/切换具体模型 <model>` |
 | `/provider model clear` | 无 |
 
 </details>
@@ -279,14 +281,23 @@ TELEGRAM_BOT_TOKEN=<your-token>
 
 | 命令 | 微信别名 |
 |---|---|
-| `/session list` | `会话列表` |
-| `/session new [name]` | `新建会话 [name]` |
-| `/session use <id|name|index>` | `切换会话 <id|name|index>` |
+| `/session list` | `/会话列表` |
+| `/session current` | `/当前会话详情` / `/会话详情` |
+| `/session history [count]` | `/会话历史 [count]` |
+| `/session new [name]` | `/新建会话 [name]` |
+| `/session use <id|name|index>` | `/切换会话 <id|name|index>` |
 | `/session archive <id|name|index>` | 无 |
-| `/new [name]` | `新任务 [name]` |
-| `/switch <id|name|index>` | `切换会话 <id|name|index>` |
+| `/history [count]` | 无 |
+| `/new [name]` | `/新任务 [name]` |
+| `/switch <id|name|index>` | `/切换会话 <id|name|index>` |
 
 </details>
+
+说明：
+
+- `/session current` 看“当前 provider 的当前会话”详细状态
+- `/session history` 默认显示最近 5 轮本地记录
+- 对 attach 进来的原生会话，只能看 Better Call Codex 接管之后记录到的历史，接管前历史不会伪造
 
 <details>
 <summary><b>原生会话</b></summary>
@@ -294,9 +305,9 @@ TELEGRAM_BOT_TOKEN=<your-token>
 | 命令 | 微信别名 |
 |---|---|
 | `/session attach <codex|claude> <native-id> [name]` | 无 |
-| `/session native list current` | `当前目录会话` / `原生会话列表` |
-| `/session native list all` | `所有原生会话` |
-| `/session native use [current|all] <index|native-id>` | `切换原生会话 <index|native-id>` |
+| `/session native list current` | `/当前目录会话` / `/原生会话列表` |
+| `/session native list all` | `/所有原生会话` |
+| `/session native use [current|all] <index|native-id>` | `/切换原生会话 <index|native-id>` |
 
 </details>
 

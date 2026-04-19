@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createEmptyState, type HarnessState } from "../domain/models.js";
+import { createEmptyState, type HarnessState, type SessionRecord } from "../domain/models.js";
 import type { HarnessStateStore } from "./types.js";
 
 export class FileHarnessStateStore implements HarnessStateStore {
@@ -48,17 +48,39 @@ function parseState(raw: string, filePath: string): HarnessState {
     throw new Error(`Invalid harness state in "${filePath}": expected a JSON object.`);
   }
 
-  const { workspaces, sessions, bindings } = parsed;
+  const { workspaces, sessions, bindings, sessionTurns } = parsed;
   if (!Array.isArray(workspaces) || !Array.isArray(sessions) || !Array.isArray(bindings)) {
     throw new Error(
       `Invalid harness state in "${filePath}": expected workspaces, sessions, and bindings arrays.`,
     );
   }
+  if (sessionTurns !== undefined && !Array.isArray(sessionTurns)) {
+    throw new Error(
+      `Invalid harness state in "${filePath}": expected sessionTurns to be an array when provided.`,
+    );
+  }
 
   return {
     workspaces,
-    sessions,
+    sessions: sessions.map((session) => normalizeSessionRecord(session)),
     bindings,
+    sessionTurns: sessionTurns ?? [],
+  };
+}
+
+function normalizeSessionRecord(record: unknown): SessionRecord {
+  if (!isRecord(record)) {
+    return record as SessionRecord;
+  }
+
+  return {
+    ...((record as unknown) as SessionRecord),
+    historyMode:
+      record.historyMode === "full" ||
+      record.historyMode === "attached" ||
+      record.historyMode === "legacy"
+        ? record.historyMode
+        : "legacy",
   };
 }
 

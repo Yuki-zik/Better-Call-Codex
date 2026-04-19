@@ -448,6 +448,60 @@ describe("HarnessService", () => {
     expect(snapshot.sessions.find((item) => item.providerSessionId === "thread_current_1")).toBeTruthy();
   });
 
+  it("uses the displayed native-session ordering when switching by index", async () => {
+    const app = createTestApp(
+      undefined,
+      {
+        codex: new StaticCatalog("codex", [
+          {
+            provider: "codex",
+            nativeSessionId: "thread_new_unattached",
+            cwd: "/Users/a-znk/code/taskvision",
+            startedAt: "2026-03-23T11:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            nativeSessionId: "thread_old_attached",
+            cwd: "/Users/a-znk/code/taskvision",
+            startedAt: "2026-03-23T10:00:00.000Z",
+          },
+        ]),
+      },
+    );
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session attach codex thread_old_attached keep-old",
+    });
+
+    const listed = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session native list current",
+    });
+
+    expect(listed.messages[0]?.text).toContain("1. codex thread_o thread_old_attached");
+    expect(listed.messages[0]?.text).toContain("[attached as keep-old]");
+
+    const used = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session native use 1",
+    });
+
+    expect(used.messages[0]?.text).toContain("Using existing attached codex session \"keep-old\"");
+  });
+
   it("lists all native sessions across workspaces", async () => {
     const app = createTestApp(
       undefined,
@@ -489,6 +543,46 @@ describe("HarnessService", () => {
     expect(listed.messages[0]?.text).toContain("thread_other");
     expect(listed.messages[0]?.text).not.toContain("thread_hidden_subagent");
     expect(listed.messages[0]?.text).toContain("Hidden 1 subagent session");
+  });
+
+  it("honors current-scope filtering when switching native sessions by explicit id", async () => {
+    const app = createTestApp(
+      undefined,
+      {
+        codex: new StaticCatalog("codex", [
+          {
+            provider: "codex",
+            nativeSessionId: "thread_current_1",
+            cwd: "/Users/a-znk/code/taskvision",
+            startedAt: "2026-03-23T11:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            nativeSessionId: "thread_other",
+            cwd: "/Users/a-znk/code/other",
+            startedAt: "2026-03-23T10:00:00.000Z",
+          },
+        ]),
+      },
+    );
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+
+    const rejected = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session native use current thread_other",
+    });
+
+    expect(rejected.messages[0]?.text).toBe("Could not find native session: thread_other");
   });
 
   it("rejects attach when no workspace is selected", async () => {
@@ -537,6 +631,129 @@ describe("HarnessService", () => {
     expect(codex.calls[0]?.providerModel).toBe("gpt-5-codex");
   });
 
+  it("shows the current session state with recorded history summary", async () => {
+    const app = createTestApp();
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "inspect current session state",
+    });
+
+    const current = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session current",
+    });
+
+    expect(current.messages[0]?.text).toContain("Current session:");
+    expect(current.messages[0]?.text).toContain("Provider: codex");
+    expect(current.messages[0]?.text).toContain("Workspace: taskvision");
+    expect(current.messages[0]?.text).toContain("Successful turns: 1");
+    expect(current.messages[0]?.text).toContain("Recorded turns here: 1");
+    expect(current.messages[0]?.text).toContain("History coverage: full since session creation.");
+    expect(current.messages[0]?.text).toContain("inspect current session state");
+  });
+
+  it("shows recent recorded history with a default limit and explicit limit override", async () => {
+    const app = createTestApp();
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+
+    for (let index = 1; index <= 6; index += 1) {
+      await app.handleMessage({
+        channel: "wechat",
+        scopeKey: "sender:alice",
+        text: `history-message-${index}`,
+      });
+    }
+
+    const historyDefault = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session history",
+    });
+
+    expect(historyDefault.messages[0]?.text).toContain("Showing 5 of 6 recorded turn(s).");
+    expect(historyDefault.messages[0]?.text).not.toContain("history-message-1");
+    expect(historyDefault.messages[0]?.text).toContain("history-message-2");
+    expect(historyDefault.messages[0]?.text).toContain("history-message-6");
+
+    const historyTwo = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session history 2",
+    });
+
+    expect(historyTwo.messages[0]?.text).toContain("Showing 2 of 6 recorded turn(s).");
+    expect(historyTwo.messages[0]?.text).not.toContain("history-message-4");
+    expect(historyTwo.messages[0]?.text).toContain("history-message-5");
+    expect(historyTwo.messages[0]?.text).toContain("history-message-6");
+  });
+
+  it("explains attach history boundaries and records turns after attach", async () => {
+    const app = createTestApp();
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session attach codex thread_123 imported-session",
+    });
+
+    const currentBeforeTurn = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session current",
+    });
+
+    expect(currentBeforeTurn.messages[0]?.text).toContain("History coverage: attached session.");
+    expect(currentBeforeTurn.messages[0]?.text).toContain("Pre-attach provider history is not available here.");
+    expect(currentBeforeTurn.messages[0]?.text).toContain("Recorded turns here: 0");
+
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "first turn after attach",
+    });
+
+    const history = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/session history",
+    });
+
+    expect(history.messages[0]?.text).toContain("Showing 1 of 1 recorded turn(s).");
+    expect(history.messages[0]?.text).toContain("History coverage: attached session.");
+    expect(history.messages[0]?.text).toContain("first turn after attach");
+    expect(history.messages[0]?.text).toContain("Pre-attach provider history is not available here.");
+  });
+
   it("rejects messages from users outside the allowlist", async () => {
     const app = createTestApp(
       {
@@ -569,14 +786,14 @@ describe("HarnessService", () => {
     expect(snapshot.sessions).toHaveLength(0);
   });
 
-  it("supports wechat-style Chinese command aliases and preserves reply context", async () => {
+  it("supports slash-prefixed wechat Chinese command aliases and preserves reply context", async () => {
     const app = createTestApp();
     const workspaceDir = await createTempWorkspace("harness-cn-");
 
     await app.handleMessage({
       channel: "wechat",
       scopeKey: "sender:alice",
-      text: `导入项目 ${workspaceDir}`,
+      text: `/导入项目 ${workspaceDir}`,
       replyContext: {
         channel: "wechat",
         senderId: "alice@im.wechat",
@@ -588,13 +805,13 @@ describe("HarnessService", () => {
     await app.handleMessage({
       channel: "wechat",
       scopeKey: "sender:alice",
-      text: "切换模型 claude",
+      text: "/切换模型 claude",
     });
 
     const created = await app.handleMessage({
       channel: "wechat",
       scopeKey: "sender:alice",
-      text: "新建会话 审阅计划",
+      text: "/新建会话 审阅计划",
     });
 
     expect(created.messages[0]?.text).toContain("审阅计划");
@@ -606,9 +823,58 @@ describe("HarnessService", () => {
     const sessions = await app.handleMessage({
       channel: "wechat",
       scopeKey: "sender:alice",
-      text: "会话列表",
+      text: "/会话列表",
     });
 
     expect(sessions.messages[0]?.text).toContain("claude/审阅计划");
+  });
+
+  it("treats non-slash command-like text as normal provider input", async () => {
+    const codex = new MockProvider("codex");
+    const app = createTestApp({
+      codex,
+      claude: new MockProvider("claude"),
+    });
+
+    await app.service.registerWorkspace({
+      slug: "taskvision",
+      rootPath: "/Users/a-znk/code/taskvision",
+    });
+    await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use taskvision",
+    });
+
+    const response = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "状态",
+    });
+
+    expect(response.messages[0]?.text).toContain("message=状态");
+    expect(codex.calls[0]?.message).toBe("状态");
+  });
+
+  it("shows command help for slash root and rejects malformed slash commands clearly", async () => {
+    const app = createTestApp();
+
+    const help = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/",
+    });
+
+    expect(help.messages[0]?.text).toContain("Better Call Codex commands");
+    expect(help.messages[0]?.text).toContain("/commands");
+    expect(help.messages[0]?.text).toContain("/workspace import <path>");
+
+    const invalid = await app.handleMessage({
+      channel: "wechat",
+      scopeKey: "sender:alice",
+      text: "/workspace use",
+    });
+
+    expect(invalid.messages[0]?.text).toBe("Usage: /workspace use <slug>");
   });
 });
