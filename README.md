@@ -445,6 +445,12 @@ PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm build
 
 ---
 
+## 作者笔记
+
+作者的 [AI Coding 实践笔记](https://a-znk-blog.vercel.app/topics/ai-coding)收录工具、工作流与限时开发中的使用复盘；[A-Znk的blog](https://a-znk-blog.vercel.app/)也整理主题化知识笔记与研究论文。
+
+---
+
 ## Roadmap
 
 下一步最值得继续做的是：
